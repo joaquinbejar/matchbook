@@ -1,0 +1,18 @@
+[package]
+name = "matchbook"
+version = "0.1.0"
+edition = "2024"
+authors = ["Joaquin Bejar <jb@taunais.com>"]
+description = "High-performance, non-custodial Central Limit Order Book (CLOB) on Solana"
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/joaquinbejar/matchbook.git"
+
+[workspace]
+members = [
+    ".",
+]
+
+[dependencies]
+
+[workspace.dependencies]
