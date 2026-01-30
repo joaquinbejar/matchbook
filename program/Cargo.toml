@@ -1,0 +1,39 @@
+[package]
+name = "matchbook-program"
+version = "0.1.0"
+edition = "2021"
+authors = ["Joaquin Bejar <jb@taunais.com>"]
+description = "Matchbook on-chain program: high-performance CLOB on Solana"
+license = "MIT"
+repository = "https://github.com/joaquinbejar/matchbook.git"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "matchbook_program"
+
+[features]
+default = []
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+cpi = ["no-entrypoint"]
+anchor-debug = []
+
+[dependencies]
+anchor-lang = { workspace = true }
+anchor-spl = { workspace = true }
+solana-program = { workspace = true }
+
+[dev-dependencies]
+
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+indexing_slicing = "warn"
+needless_collect = "warn"
+unnecessary_to_owned = "warn"
+clone_on_ref_ptr = "warn"

@@ -1,7 +1,7 @@
 [package]
 name = "matchbook"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 authors = ["Joaquin Bejar <jb@taunais.com>"]
 description = "High-performance, non-custodial Central Limit Order Book (CLOB) on Solana"
 license = "MIT"
@@ -11,8 +11,29 @@ repository = "https://github.com/joaquinbejar/matchbook.git"
 [workspace]
 members = [
     ".",
+    "program",
 ]
+resolver = "2"
 
 [dependencies]
 
 [workspace.dependencies]
+anchor-lang = "0.32"
+anchor-spl = "0.32"
+solana-program = "3.0"
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+missing_docs = "deny"
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+indexing_slicing = "warn"
+needless_collect = "warn"
+unnecessary_to_owned = "warn"
+clone_on_ref_ptr = "warn"
+
+[profile.release]
+overflow-checks = true

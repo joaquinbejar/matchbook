@@ -24,7 +24,7 @@ test:
 # Run integration tests (requires API running)
 .PHONY: test-integration
 test-integration:
-	cargo test -p orderbook-tests
+	cargo test -p matchbook-tests
 
 # Run all tests
 .PHONY: test-all
@@ -99,14 +99,14 @@ coverage:
 	export LOGLEVEL=WARN
 	cargo install cargo-tarpaulin
 	mkdir -p coverage
-	cargo tarpaulin --verbose --all-features --timeout 0 --out Xml --output-dir coverage --packages option-chain-orderbook-backend --packages orderbook-client
+	cargo tarpaulin --verbose --all-features --timeout 0 --out Xml --output-dir coverage --packages option-chain-matchbook-backend --packages matchbook-client
 
 .PHONY: coverage-html
 coverage-html:
 	export LOGLEVEL=WARN
 	cargo install cargo-tarpaulin
 	mkdir -p coverage
-	cargo tarpaulin --color Always --tests --all-targets --all-features --timeout 0 --out Html --output-dir coverage --packages option-chain-orderbook-backend --packages orderbook-client
+	cargo tarpaulin --color Always --tests --all-targets --all-features --timeout 0 --out Html --output-dir coverage --packages option-chain-matchbook-backend --packages matchbook-client
 
 .PHONY: open-coverage
 open-coverage:
