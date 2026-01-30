@@ -1,7 +1,7 @@
 [package]
 name = "matchbook"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 authors = ["Joaquin Bejar <jb@taunais.com>"]
 description = "High-performance, non-custodial Central Limit Order Book (CLOB) on Solana"
 license = "MIT"
@@ -18,8 +18,8 @@ resolver = "2"
 [dependencies]
 
 [workspace.dependencies]
-anchor-lang = "1.0.0-rc.2"
-anchor-spl = "1.0.0-rc.2"
+anchor-lang = "0.32"
+anchor-spl = "0.32"
 solana-program = "3.0"
 
 [workspace.lints.rust]

@@ -120,7 +120,7 @@ jobs:
 
       - name: Install Anchor CLI
         run: |
-          cargo install anchor-cli@1.0.0-rc.2 --force
+          cargo install anchor-cli@0.32.1 --force
 
       - name: Cache cargo registry
         uses: actions/cache@v4
