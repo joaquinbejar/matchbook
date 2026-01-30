@@ -1,0 +1,10 @@
+# Clippy configuration for Matchbook
+# See: https://rust-lang.github.io/rust-clippy/master/index.html
+
+# Complexity thresholds
+cognitive-complexity-threshold = 25
+too-many-arguments-threshold = 8
+type-complexity-threshold = 300
+
+# Allow certain patterns common in Solana programs
+doc-valid-idents = ["PDA", "PDAs", "SPL", "CPI", "BPS", "CLOB"]

@@ -1,0 +1,24 @@
+# Rustfmt configuration for Matchbook
+# See: https://rust-lang.github.io/rustfmt/
+
+edition = "2021"
+max_width = 100
+tab_spaces = 4
+newline_style = "Unix"
+use_small_heuristics = "Default"
+
+# Imports
+imports_granularity = "Module"
+group_imports = "StdExternalCrate"
+reorder_imports = true
+reorder_modules = true
+
+# Comments
+wrap_comments = false
+normalize_comments = false
+normalize_doc_attributes = true
+
+# Formatting
+format_code_in_doc_comments = true
+format_macro_matchers = true
+format_strings = false
