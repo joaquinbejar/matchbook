@@ -9,19 +9,19 @@
 //! - [`create_open_orders`] - Creates a user's trading account for a market
 //! - [`deposit`] - Deposits tokens into a user's OpenOrders account
 //! - [`withdraw`] - Withdraws tokens from a user's OpenOrders account
-//! - [`place_order`] - Places a new order on the order book
+//! - [`cancel_order`] - Cancels an order from the order book
 
+pub mod cancel_order;
 pub mod create_market;
 pub mod create_open_orders;
 pub mod deposit;
-pub mod place_order;
 pub mod withdraw;
 
+pub use cancel_order::CancelOrderParams;
 pub use create_market::{
     CreateMarketParams, BASE_VAULT_SEED, EVENT_QUEUE_ACCOUNT_SIZE, MAX_FEE_BPS, MAX_MAKER_FEE_BPS,
     MAX_MAKER_REBATE_BPS, ORDERBOOK_ACCOUNT_SIZE, QUOTE_VAULT_SEED,
 };
 pub use create_open_orders::CreateOpenOrdersParams;
 pub use deposit::DepositParams;
-pub use place_order::{OrderType, PlaceOrderParams};
 pub use withdraw::WithdrawParams;

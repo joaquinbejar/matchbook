@@ -25,8 +25,8 @@ pub mod state;
 
 pub use error::{ErrorCategory, MatchbookError};
 pub use instructions::{
-    CreateMarketParams, CreateOpenOrdersParams, DepositParams, OrderType, PlaceOrderParams,
-    WithdrawParams, BASE_VAULT_SEED, EVENT_QUEUE_ACCOUNT_SIZE, MAX_FEE_BPS, MAX_MAKER_FEE_BPS,
+    CancelOrderParams, CreateMarketParams, CreateOpenOrdersParams, DepositParams, WithdrawParams,
+    BASE_VAULT_SEED, EVENT_QUEUE_ACCOUNT_SIZE, MAX_FEE_BPS, MAX_MAKER_FEE_BPS,
     MAX_MAKER_REBATE_BPS, ORDERBOOK_ACCOUNT_SIZE, QUOTE_VAULT_SEED,
 };
 
@@ -127,27 +127,25 @@ pub mod matchbook {
         instructions::withdraw::handler(ctx, params)
     }
 
-    /// Places a new order on the order book.
+    /// Cancels an order from the order book.
     ///
-    /// Validates the order, locks funds, and inserts into the appropriate
-    /// book side (bids or asks). Both owner and delegate can place orders.
+    /// Removes the order, releases locked funds back to free balance,
+    /// and emits an Out event for off-chain tracking.
+    /// Both owner and delegate can cancel orders.
     ///
     /// # Arguments
     ///
     /// * `ctx` - The instruction context
-    /// * `params` - Order parameters (side, price, quantity, type)
+    /// * `params` - Cancel parameters (order_id, side)
     ///
     /// # Errors
     ///
     /// Returns an error if:
-    /// - Market is not active
+    /// - Market is closed
     /// - Authority is not authorized
-    /// - Invalid price or quantity
-    /// - Insufficient free balance
-    /// - No free order slot available
-    /// - PostOnly order would cross the spread
-    pub fn place_order(ctx: Context<PlaceOrder>, params: PlaceOrderParams) -> Result<()> {
-        instructions::place_order::handler(ctx, params)
+    /// - Order not found
+    pub fn cancel_order(ctx: Context<CancelOrder>, params: CancelOrderParams) -> Result<()> {
+        instructions::cancel_order::handler(ctx, params)
     }
 }
 
@@ -383,17 +381,18 @@ pub struct Withdraw<'info> {
     pub token_program: Program<'info, Token>,
 }
 
-/// Accounts for the PlaceOrder instruction.
+/// Accounts for the CancelOrder instruction.
+///
+/// Note: Cancellation is allowed even if market is paused (CancelOnly mode).
+/// Cancellation is NOT allowed if market is closed.
 #[derive(Accounts)]
-#[instruction(params: PlaceOrderParams)]
-pub struct PlaceOrder<'info> {
-    /// Authority placing the order (owner or delegate).
+#[instruction(params: CancelOrderParams)]
+pub struct CancelOrder<'info> {
+    /// Authority cancelling the order (owner or delegate).
     pub authority: Signer<'info>,
 
-    /// Market to place order on.
+    /// Market the order is on.
     #[account(
-        mut,
-        constraint = market.is_active() @ MatchbookError::MarketNotActive,
         has_one = bids @ MatchbookError::InvalidAccountData,
         has_one = asks @ MatchbookError::InvalidAccountData,
         has_one = event_queue @ MatchbookError::InvalidAccountData
