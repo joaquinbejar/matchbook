@@ -25,9 +25,10 @@ pub mod state;
 
 pub use error::{ErrorCategory, MatchbookError};
 pub use instructions::{
-    CancelAllOrdersParams, CancelOrderParams, CreateMarketParams, CreateOpenOrdersParams,
-    DepositParams, MatchOrdersParams, WithdrawParams, BASE_VAULT_SEED, EVENT_QUEUE_ACCOUNT_SIZE,
-    MAX_FEE_BPS, MAX_MAKER_FEE_BPS, MAX_MAKER_REBATE_BPS, ORDERBOOK_ACCOUNT_SIZE, QUOTE_VAULT_SEED,
+    CancelAllOrdersParams, CancelOrderParams, ConsumeEventsParams, CreateMarketParams,
+    CreateOpenOrdersParams, DepositParams, MatchOrdersParams, WithdrawParams, BASE_VAULT_SEED,
+    EVENT_QUEUE_ACCOUNT_SIZE, MAX_FEE_BPS, MAX_MAKER_FEE_BPS, MAX_MAKER_REBATE_BPS,
+    ORDERBOOK_ACCOUNT_SIZE, QUOTE_VAULT_SEED,
 };
 
 pub use state::{
@@ -197,6 +198,31 @@ pub mod matchbook {
     /// - Limit is zero
     pub fn match_orders(ctx: Context<MatchOrders>, params: MatchOrdersParams) -> Result<u8> {
         instructions::match_orders::handler(ctx, params)
+    }
+
+    /// Consumes events from the event queue and settles funds.
+    ///
+    /// Processes Fill and Out events, updating OpenOrders balances.
+    /// Anyone can call this instruction to trigger settlement.
+    ///
+    /// # Arguments
+    ///
+    /// * `ctx` - The instruction context
+    /// * `params` - Consume parameters (limit)
+    ///
+    /// # Returns
+    ///
+    /// The number of events consumed.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - Limit is zero
+    pub fn consume_events<'info>(
+        ctx: Context<'_, '_, 'info, 'info, ConsumeEvents<'info>>,
+        params: ConsumeEventsParams,
+    ) -> Result<u16> {
+        instructions::consume_events::handler(ctx, params)
     }
 }
 
@@ -549,6 +575,29 @@ pub struct MatchOrders<'info> {
     /// CHECK: Validated via has_one on market.
     #[account(mut)]
     pub event_queue: UncheckedAccount<'info>,
+}
+
+/// Accounts for the ConsumeEvents instruction.
+///
+/// This is a permissionless crank instruction - anyone can call it.
+/// OpenOrders accounts for affected users are passed as remaining accounts.
+#[derive(Accounts)]
+#[instruction(params: ConsumeEventsParams)]
+pub struct ConsumeEvents<'info> {
+    /// Anyone can call this instruction (permissionless crank).
+    pub crank: Signer<'info>,
+
+    /// Market the events are for.
+    #[account(
+        has_one = event_queue @ MatchbookError::InvalidAccountData
+    )]
+    pub market: Account<'info, Market>,
+
+    /// Event queue account.
+    /// CHECK: Validated via has_one on market.
+    #[account(mut)]
+    pub event_queue: UncheckedAccount<'info>,
+    // Remaining accounts: OpenOrders accounts for users in events
 }
 
 #[cfg(test)]
