@@ -18,7 +18,10 @@
 
 use anchor_lang::prelude::*;
 
+pub mod error;
 pub mod state;
+
+pub use error::{ErrorCategory, MatchbookError};
 
 pub use state::{
     critbit, get_bit, AnyNode, Event, EventQueueHeader, FillEvent, FreeNode, InnerNode, LeafNode,
