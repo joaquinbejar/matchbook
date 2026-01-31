@@ -25,9 +25,9 @@ pub mod state;
 
 pub use error::{ErrorCategory, MatchbookError};
 pub use instructions::{
-    CancelOrderParams, CreateMarketParams, CreateOpenOrdersParams, DepositParams, WithdrawParams,
-    BASE_VAULT_SEED, EVENT_QUEUE_ACCOUNT_SIZE, MAX_FEE_BPS, MAX_MAKER_FEE_BPS,
-    MAX_MAKER_REBATE_BPS, ORDERBOOK_ACCOUNT_SIZE, QUOTE_VAULT_SEED,
+    CancelAllOrdersParams, CancelOrderParams, CreateMarketParams, CreateOpenOrdersParams,
+    DepositParams, WithdrawParams, BASE_VAULT_SEED, EVENT_QUEUE_ACCOUNT_SIZE, MAX_FEE_BPS,
+    MAX_MAKER_FEE_BPS, MAX_MAKER_REBATE_BPS, ORDERBOOK_ACCOUNT_SIZE, QUOTE_VAULT_SEED,
 };
 
 pub use state::{
@@ -146,6 +146,34 @@ pub mod matchbook {
     /// - Order not found
     pub fn cancel_order(ctx: Context<CancelOrder>, params: CancelOrderParams) -> Result<()> {
         instructions::cancel_order::handler(ctx, params)
+    }
+
+    /// Cancels all orders for a user up to a limit.
+    ///
+    /// Iterates through OpenOrders slots and cancels each active order
+    /// matching the side filter. Useful for market makers and emergency exit.
+    /// Both owner and delegate can cancel orders.
+    ///
+    /// # Arguments
+    ///
+    /// * `ctx` - The instruction context
+    /// * `params` - Cancel parameters (side filter, limit)
+    ///
+    /// # Returns
+    ///
+    /// The number of orders cancelled.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - Market is closed
+    /// - Authority is not authorized
+    /// - Limit is zero
+    pub fn cancel_all_orders(
+        ctx: Context<CancelAllOrders>,
+        params: CancelAllOrdersParams,
+    ) -> Result<u8> {
+        instructions::cancel_all_orders::handler(ctx, params)
     }
 }
 
@@ -392,6 +420,49 @@ pub struct CancelOrder<'info> {
     pub authority: Signer<'info>,
 
     /// Market the order is on.
+    #[account(
+        has_one = bids @ MatchbookError::InvalidAccountData,
+        has_one = asks @ MatchbookError::InvalidAccountData,
+        has_one = event_queue @ MatchbookError::InvalidAccountData
+    )]
+    pub market: Account<'info, Market>,
+
+    /// User's OpenOrders account.
+    #[account(
+        mut,
+        seeds = [OPEN_ORDERS_SEED, market.key().as_ref(), open_orders.owner.as_ref()],
+        bump = open_orders.bump,
+        constraint = open_orders.is_authorized(authority.key) @ MatchbookError::Unauthorized
+    )]
+    pub open_orders: Account<'info, OpenOrders>,
+
+    /// Bids order book account.
+    /// CHECK: Validated via has_one on market.
+    #[account(mut)]
+    pub bids: UncheckedAccount<'info>,
+
+    /// Asks order book account.
+    /// CHECK: Validated via has_one on market.
+    #[account(mut)]
+    pub asks: UncheckedAccount<'info>,
+
+    /// Event queue account.
+    /// CHECK: Validated via has_one on market.
+    #[account(mut)]
+    pub event_queue: UncheckedAccount<'info>,
+}
+
+/// Accounts for the CancelAllOrders instruction.
+///
+/// Note: Cancellation is allowed even if market is paused (CancelOnly mode).
+/// Cancellation is NOT allowed if market is closed.
+#[derive(Accounts)]
+#[instruction(params: CancelAllOrdersParams)]
+pub struct CancelAllOrders<'info> {
+    /// Authority cancelling the orders (owner or delegate).
+    pub authority: Signer<'info>,
+
+    /// Market the orders are on.
     #[account(
         has_one = bids @ MatchbookError::InvalidAccountData,
         has_one = asks @ MatchbookError::InvalidAccountData,

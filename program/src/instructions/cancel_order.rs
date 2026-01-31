@@ -168,7 +168,7 @@ pub fn handler(ctx: Context<crate::CancelOrder>, params: CancelOrderParams) -> R
 ///
 /// A tuple of (quantity, price) for the removed order.
 #[allow(clippy::indexing_slicing)] // Bounds checked before indexing
-fn remove_order_from_book(
+pub fn remove_order_from_book(
     book_account: &AccountInfo,
     order_id: u128,
     side: Side,
@@ -286,7 +286,7 @@ fn remove_order_from_book(
 /// * `event_queue` - The event queue account
 /// * `event` - The Out event to push
 #[allow(clippy::indexing_slicing)] // Bounds checked before indexing
-fn push_out_event(event_queue: &AccountInfo, event: OutEvent) -> Result<()> {
+pub fn push_out_event(event_queue: &AccountInfo, event: OutEvent) -> Result<()> {
     let mut data = event_queue.try_borrow_mut_data()?;
 
     // Skip discriminator (8 bytes)
