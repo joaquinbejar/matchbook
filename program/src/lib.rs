@@ -25,8 +25,8 @@ pub mod state;
 
 pub use error::{ErrorCategory, MatchbookError};
 pub use instructions::{
-    CreateMarketParams, BASE_VAULT_SEED, EVENT_QUEUE_ACCOUNT_SIZE, MAX_FEE_BPS, MAX_MAKER_FEE_BPS,
-    MAX_MAKER_REBATE_BPS, ORDERBOOK_ACCOUNT_SIZE, QUOTE_VAULT_SEED,
+    CreateMarketParams, CreateOpenOrdersParams, BASE_VAULT_SEED, EVENT_QUEUE_ACCOUNT_SIZE,
+    MAX_FEE_BPS, MAX_MAKER_FEE_BPS, MAX_MAKER_REBATE_BPS, ORDERBOOK_ACCOUNT_SIZE, QUOTE_VAULT_SEED,
 };
 
 pub use state::{
@@ -64,6 +64,26 @@ pub mod matchbook {
     /// Returns an error if parameters are invalid or mints are the same.
     pub fn create_market(ctx: Context<CreateMarket>, params: CreateMarketParams) -> Result<()> {
         instructions::create_market::handler(ctx, params)
+    }
+
+    /// Creates an OpenOrders account for a user in a market.
+    ///
+    /// Users must create this account before they can deposit funds or place orders.
+    /// Each user needs one OpenOrders account per market they trade on.
+    ///
+    /// # Arguments
+    ///
+    /// * `ctx` - The instruction context
+    /// * `params` - Optional delegate configuration
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the market is not active.
+    pub fn create_open_orders(
+        ctx: Context<CreateOpenOrders>,
+        params: CreateOpenOrdersParams,
+    ) -> Result<()> {
+        instructions::create_open_orders::handler(ctx, params)
     }
 }
 
@@ -158,6 +178,37 @@ pub struct CreateMarket<'info> {
 
     /// Token program for vault creation.
     pub token_program: Program<'info, Token>,
+}
+
+/// Accounts for the CreateOpenOrders instruction.
+#[derive(Accounts)]
+#[instruction(params: CreateOpenOrdersParams)]
+pub struct CreateOpenOrders<'info> {
+    /// Payer for account creation rent.
+    #[account(mut)]
+    pub payer: Signer<'info>,
+
+    /// Owner of the OpenOrders account.
+    pub owner: Signer<'info>,
+
+    /// Market the OpenOrders account is for.
+    #[account(
+        constraint = market.is_active() @ MatchbookError::MarketNotActive
+    )]
+    pub market: Account<'info, Market>,
+
+    /// OpenOrders account (PDA).
+    #[account(
+        init,
+        payer = payer,
+        space = 8 + OpenOrders::INIT_SPACE,
+        seeds = [OPEN_ORDERS_SEED, market.key().as_ref(), owner.key().as_ref()],
+        bump
+    )]
+    pub open_orders: Account<'info, OpenOrders>,
+
+    /// System program for account creation.
+    pub system_program: Program<'info, System>,
 }
 
 #[cfg(test)]
