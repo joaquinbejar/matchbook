@@ -21,9 +21,10 @@ use anchor_lang::prelude::*;
 pub mod state;
 
 pub use state::{
-    critbit, get_bit, AnyNode, FreeNode, InnerNode, LeafNode, Market, MarketStatus, NodeTag,
-    OrderBookSideHeader, OrderId, TimeInForce, ASKS_SEED, BIDS_SEED, MARKET_SEED, NODE_SIZE,
-    ORDERBOOK_HEADER_SIZE, SENTINEL,
+    critbit, get_bit, AnyNode, Event, EventQueueHeader, FillEvent, FreeNode, InnerNode, LeafNode,
+    Market, MarketStatus, NodeTag, OrderBookSideHeader, OrderId, OutEvent, OutReason, Side,
+    TimeInForce, ASKS_SEED, BIDS_SEED, EVENT_QUEUE_HEADER_SIZE, EVENT_QUEUE_SEED, MARKET_SEED,
+    NODE_SIZE, ORDERBOOK_HEADER_SIZE, SENTINEL,
 };
 
 declare_id!("MATCHBooK1111111111111111111111111111111111");
