@@ -26,8 +26,8 @@ pub mod state;
 pub use error::{ErrorCategory, MatchbookError};
 pub use instructions::{
     CancelAllOrdersParams, CancelOrderParams, CreateMarketParams, CreateOpenOrdersParams,
-    DepositParams, WithdrawParams, BASE_VAULT_SEED, EVENT_QUEUE_ACCOUNT_SIZE, MAX_FEE_BPS,
-    MAX_MAKER_FEE_BPS, MAX_MAKER_REBATE_BPS, ORDERBOOK_ACCOUNT_SIZE, QUOTE_VAULT_SEED,
+    DepositParams, MatchOrdersParams, WithdrawParams, BASE_VAULT_SEED, EVENT_QUEUE_ACCOUNT_SIZE,
+    MAX_FEE_BPS, MAX_MAKER_FEE_BPS, MAX_MAKER_REBATE_BPS, ORDERBOOK_ACCOUNT_SIZE, QUOTE_VAULT_SEED,
 };
 
 pub use state::{
@@ -174,6 +174,29 @@ pub mod matchbook {
         params: CancelAllOrdersParams,
     ) -> Result<u8> {
         instructions::cancel_all_orders::handler(ctx, params)
+    }
+
+    /// Executes the matching algorithm (permissionless crank).
+    ///
+    /// Crosses orders from both sides of the book and generates fill events.
+    /// Anyone can call this instruction to trigger matching.
+    ///
+    /// # Arguments
+    ///
+    /// * `ctx` - The instruction context
+    /// * `params` - Match parameters (limit)
+    ///
+    /// # Returns
+    ///
+    /// The number of matches executed.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - Market is not active
+    /// - Limit is zero
+    pub fn match_orders(ctx: Context<MatchOrders>, params: MatchOrdersParams) -> Result<u8> {
+        instructions::match_orders::handler(ctx, params)
     }
 }
 
@@ -478,6 +501,39 @@ pub struct CancelAllOrders<'info> {
         constraint = open_orders.is_authorized(authority.key) @ MatchbookError::Unauthorized
     )]
     pub open_orders: Account<'info, OpenOrders>,
+
+    /// Bids order book account.
+    /// CHECK: Validated via has_one on market.
+    #[account(mut)]
+    pub bids: UncheckedAccount<'info>,
+
+    /// Asks order book account.
+    /// CHECK: Validated via has_one on market.
+    #[account(mut)]
+    pub asks: UncheckedAccount<'info>,
+
+    /// Event queue account.
+    /// CHECK: Validated via has_one on market.
+    #[account(mut)]
+    pub event_queue: UncheckedAccount<'info>,
+}
+
+/// Accounts for the MatchOrders instruction.
+///
+/// This is a permissionless crank instruction - anyone can call it.
+#[derive(Accounts)]
+#[instruction(params: MatchOrdersParams)]
+pub struct MatchOrders<'info> {
+    /// Anyone can call this instruction (permissionless crank).
+    pub crank: Signer<'info>,
+
+    /// Market to match orders on.
+    #[account(
+        has_one = bids @ MatchbookError::InvalidAccountData,
+        has_one = asks @ MatchbookError::InvalidAccountData,
+        has_one = event_queue @ MatchbookError::InvalidAccountData
+    )]
+    pub market: Account<'info, Market>,
 
     /// Bids order book account.
     /// CHECK: Validated via has_one on market.

@@ -11,12 +11,14 @@
 //! - [`withdraw`] - Withdraws tokens from a user's OpenOrders account
 //! - [`cancel_order`] - Cancels an order from the order book
 //! - [`cancel_all_orders`] - Cancels all orders for a user
+//! - [`match_orders`] - Executes the matching algorithm (crank)
 
 pub mod cancel_all_orders;
 pub mod cancel_order;
 pub mod create_market;
 pub mod create_open_orders;
 pub mod deposit;
+pub mod match_orders;
 pub mod withdraw;
 
 pub use cancel_all_orders::CancelAllOrdersParams;
@@ -27,4 +29,5 @@ pub use create_market::{
 };
 pub use create_open_orders::CreateOpenOrdersParams;
 pub use deposit::DepositParams;
+pub use match_orders::MatchOrdersParams;
 pub use withdraw::WithdrawParams;
