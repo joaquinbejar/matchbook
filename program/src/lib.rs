@@ -17,11 +17,17 @@
 //! See `.internalDoc/03-onchain-design.md` for detailed architecture.
 
 use anchor_lang::prelude::*;
+use anchor_spl::token::{Mint, Token, TokenAccount};
 
 pub mod error;
+pub mod instructions;
 pub mod state;
 
 pub use error::{ErrorCategory, MatchbookError};
+pub use instructions::{
+    CreateMarketParams, BASE_VAULT_SEED, EVENT_QUEUE_ACCOUNT_SIZE, MAX_FEE_BPS, MAX_MAKER_FEE_BPS,
+    MAX_MAKER_REBATE_BPS, ORDERBOOK_ACCOUNT_SIZE, QUOTE_VAULT_SEED,
+};
 
 pub use state::{
     critbit, get_bit, AnyNode, Event, EventQueueHeader, FillEvent, FreeNode, InnerNode, LeafNode,
@@ -38,21 +44,120 @@ declare_id!("MATCHBooK1111111111111111111111111111111111");
 pub mod matchbook {
     use super::*;
 
-    /// Placeholder instruction for initial setup.
+    /// Creates a new trading market with all associated accounts.
     ///
-    /// This will be replaced with actual instructions in subsequent issues.
-    pub fn initialize(_ctx: Context<Initialize>) -> Result<()> {
-        msg!("Matchbook program initialized");
-        Ok(())
+    /// This instruction initializes:
+    /// - Market account (PDA)
+    /// - Bids order book (PDA)
+    /// - Asks order book (PDA)
+    /// - Event queue (PDA)
+    /// - Base token vault (PDA token account)
+    /// - Quote token vault (PDA token account)
+    ///
+    /// # Arguments
+    ///
+    /// * `ctx` - The instruction context
+    /// * `params` - Market configuration parameters
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if parameters are invalid or mints are the same.
+    pub fn create_market(ctx: Context<CreateMarket>, params: CreateMarketParams) -> Result<()> {
+        instructions::create_market::handler(ctx, params)
     }
 }
 
-/// Accounts for the initialize instruction.
+/// Accounts for the CreateMarket instruction.
 #[derive(Accounts)]
-pub struct Initialize<'info> {
-    /// The signer account (placeholder).
+#[instruction(params: CreateMarketParams)]
+pub struct CreateMarket<'info> {
+    /// Payer for account creation rent.
     #[account(mut)]
-    pub signer: Signer<'info>,
+    pub payer: Signer<'info>,
+
+    /// Market authority that can modify market parameters.
+    pub authority: Signer<'info>,
+
+    /// Base token mint.
+    pub base_mint: Account<'info, Mint>,
+
+    /// Quote token mint.
+    pub quote_mint: Account<'info, Mint>,
+
+    /// Market account (PDA).
+    #[account(
+        init,
+        payer = payer,
+        space = 8 + Market::INIT_SPACE,
+        seeds = [MARKET_SEED, base_mint.key().as_ref(), quote_mint.key().as_ref()],
+        bump
+    )]
+    pub market: Account<'info, Market>,
+
+    /// Bids order book account (PDA).
+    /// CHECK: Initialized manually as zero_copy account.
+    #[account(
+        init,
+        payer = payer,
+        space = 8 + ORDERBOOK_ACCOUNT_SIZE,
+        seeds = [BIDS_SEED, market.key().as_ref()],
+        bump
+    )]
+    pub bids: UncheckedAccount<'info>,
+
+    /// Asks order book account (PDA).
+    /// CHECK: Initialized manually as zero_copy account.
+    #[account(
+        init,
+        payer = payer,
+        space = 8 + ORDERBOOK_ACCOUNT_SIZE,
+        seeds = [ASKS_SEED, market.key().as_ref()],
+        bump
+    )]
+    pub asks: UncheckedAccount<'info>,
+
+    /// Event queue account (PDA).
+    /// CHECK: Initialized manually as zero_copy account.
+    #[account(
+        init,
+        payer = payer,
+        space = 8 + EVENT_QUEUE_ACCOUNT_SIZE,
+        seeds = [EVENT_QUEUE_SEED, market.key().as_ref()],
+        bump
+    )]
+    pub event_queue: UncheckedAccount<'info>,
+
+    /// Base token vault (PDA token account).
+    #[account(
+        init,
+        payer = payer,
+        token::mint = base_mint,
+        token::authority = market,
+        seeds = [BASE_VAULT_SEED, market.key().as_ref()],
+        bump
+    )]
+    pub base_vault: Account<'info, TokenAccount>,
+
+    /// Quote token vault (PDA token account).
+    #[account(
+        init,
+        payer = payer,
+        token::mint = quote_mint,
+        token::authority = market,
+        seeds = [QUOTE_VAULT_SEED, market.key().as_ref()],
+        bump
+    )]
+    pub quote_vault: Account<'info, TokenAccount>,
+
+    /// Fee recipient account for collected fees.
+    /// CHECK: Can be any account, validated by authority.
+    pub fee_recipient: UncheckedAccount<'info>,
+
+    /// System program for account creation.
+    pub system_program: Program<'info, System>,
+
+    /// Token program for vault creation.
+    pub token_program: Program<'info, Token>,
 }
 
 #[cfg(test)]
