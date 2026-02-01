@@ -42,6 +42,13 @@
 //! - [`client::MatchbookClient`] — HTTP client for market data and user data
 //! - [`client::ClientConfig`] — Client configuration
 //!
+//! # WebSocket Client
+//!
+//! The [`ws`] module provides a WebSocket client for real-time streaming:
+//!
+//! - [`ws::MatchbookWsClient`] — WebSocket client for real-time updates
+//! - [`ws::WsConfig`] — WebSocket configuration
+//!
 //! # Example
 //!
 //! ```rust
@@ -57,6 +64,7 @@ pub mod client;
 pub mod error;
 pub mod instructions;
 pub mod types;
+pub mod ws;
 
 pub use error::SdkError;
 pub use types::{
