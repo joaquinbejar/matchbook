@@ -20,6 +20,21 @@
 //! - [`OrderBook`] — Full order book with bids/asks
 //! - [`Balance`] — User balances
 //!
+//! # Instruction Builders
+//!
+//! The [`instructions`] module provides builders for constructing Solana
+//! instructions for all Matchbook operations:
+//!
+//! - [`instructions::CreateMarketBuilder`] — Create a new market
+//! - [`instructions::CreateOpenOrdersBuilder`] — Create user's open orders account
+//! - [`instructions::DepositBuilder`] — Deposit tokens
+//! - [`instructions::WithdrawBuilder`] — Withdraw tokens
+//! - [`instructions::PlaceOrderBuilder`] — Place an order
+//! - [`instructions::CancelOrderBuilder`] — Cancel an order
+//! - [`instructions::CancelAllOrdersBuilder`] — Cancel all orders
+//! - [`instructions::MatchOrdersBuilder`] — Trigger order matching
+//! - [`instructions::ConsumeEventsBuilder`] — Process events
+//!
 //! # Example
 //!
 //! ```rust
@@ -32,6 +47,7 @@
 //! ```
 
 pub mod error;
+pub mod instructions;
 pub mod types;
 
 pub use error::SdkError;
