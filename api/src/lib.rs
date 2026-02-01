@@ -25,6 +25,13 @@
 //! - `POST /v1/tx/cancel-order` — Build CancelOrder transaction
 //! - `POST /v1/tx/deposit` — Build Deposit transaction
 //! - `POST /v1/tx/withdraw` — Build Withdraw transaction
+//!
+//! ## WebSocket
+//!
+//! - `GET /v1/ws` — WebSocket endpoint for real-time updates
+//!   - `book:{market}` — Order book deltas
+//!   - `trades:{market}` — Real-time trades
+//!   - `orders:{owner}` — User's order updates (requires auth)
 
 pub mod error;
 pub mod handlers;
@@ -32,7 +39,9 @@ pub mod models;
 pub mod routes;
 pub mod server;
 pub mod state;
+pub mod ws;
 
 pub use error::ApiError;
 pub use server::Server;
 pub use state::AppState;
+pub use ws::{Channel, ChannelManager, WsMetrics, WsState};
