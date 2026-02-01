@@ -35,6 +35,13 @@
 //! - [`instructions::MatchOrdersBuilder`] — Trigger order matching
 //! - [`instructions::ConsumeEventsBuilder`] — Process events
 //!
+//! # HTTP Client
+//!
+//! The [`client`] module provides an HTTP client for the REST API:
+//!
+//! - [`client::MatchbookClient`] — HTTP client for market data and user data
+//! - [`client::ClientConfig`] — Client configuration
+//!
 //! # Example
 //!
 //! ```rust
@@ -46,6 +53,7 @@
 //! let order_type = OrderType::Limit;
 //! ```
 
+pub mod client;
 pub mod error;
 pub mod instructions;
 pub mod types;
