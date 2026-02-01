@@ -31,6 +31,14 @@
 //! - [`ParsedAccount`]: Enum of parsed account variants
 //! - [`ParserMetrics`]: Metrics for parse operations
 //!
+//! # Book Builder
+//!
+//! The [`book`] module maintains in-memory order book state:
+//!
+//! - [`BookBuilder`]: Manages order books for multiple markets
+//! - [`FullOrderBook`]: Complete order book for a single market
+//! - [`BookMetrics`]: Metrics for book operations
+//!
 //! # Usage
 //!
 //! ```rust,ignore
@@ -55,11 +63,13 @@
 //! }
 //! ```
 
+pub mod book;
 pub mod db;
 pub mod geyser;
 pub mod parser;
 pub mod seed;
 
+pub use book::{BookBuilder, BookMetrics, FullOrderBook};
 pub use db::{Database, DatabaseError};
 pub use geyser::{GeyserConfig, GeyserListener, GeyserMetrics};
 pub use parser::{AccountParser, ParsedAccount, ParserMetrics};
