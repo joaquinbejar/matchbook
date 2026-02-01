@@ -10,6 +10,12 @@ repository = "https://github.com/joaquinbejar/matchbook"
 [dependencies]
 # Async runtime
 tokio = { version = "1.43", features = ["full"] }
+tokio-stream = "0.1"
+futures = "0.3"
+
+# gRPC and Geyser
+tonic = { version = "0.12", features = ["tls", "tls-roots"] }
+prost = "0.13"
 
 # Database
 sqlx = { version = "0.8", features = [
@@ -37,6 +43,9 @@ anyhow = "1.0"
 
 # Logging
 tracing = "0.1"
+
+# Solana types
+bs58 = "0.5"
 
 [dev-dependencies]
 # Testing

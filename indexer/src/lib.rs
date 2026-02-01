@@ -1,7 +1,7 @@
-//! Matchbook Indexer - Off-chain database layer for the Matchbook CLOB.
+//! Matchbook Indexer - Off-chain indexer and database layer for the Matchbook CLOB.
 //!
-//! This crate provides the database schema, models, and utilities for storing
-//! and querying market data, trades, orders, and user balances.
+//! This crate provides the database schema, models, Geyser listener, and utilities
+//! for indexing and querying market data, trades, orders, and user balances.
 //!
 //! # Architecture
 //!
@@ -14,22 +14,42 @@
 //! - **balances**: User balance snapshots
 //! - **candles**: OHLCV aggregates (TimescaleDB continuous aggregates)
 //!
+//! # Geyser Listener
+//!
+//! The [`geyser`] module provides real-time subscription to Solana account updates
+//! via the Geyser plugin interface:
+//!
+//! - [`GeyserConfig`]: Configuration for Geyser connection
+//! - [`GeyserListener`]: Main listener that streams account updates
+//! - [`GeyserMetrics`]: Metrics for monitoring connection health
+//!
 //! # Usage
 //!
 //! ```rust,ignore
 //! use matchbook_indexer::db::{Database, Market};
+//! use matchbook_indexer::geyser::{GeyserConfig, GeyserListener};
 //!
 //! #[tokio::main]
 //! async fn main() -> anyhow::Result<()> {
+//!     // Database connection
 //!     let db = Database::connect("postgres://localhost/matchbook").await?;
 //!     db.run_migrations().await?;
 //!
-//!     let markets = db.list_markets().await?;
+//!     // Geyser listener
+//!     let config = GeyserConfig::new(
+//!         "http://localhost:10000",
+//!         "MATCHBooK1111111111111111111111111111111111",
+//!     );
+//!     let (tx, rx) = tokio::sync::mpsc::channel(10000);
+//!     let listener = GeyserListener::new(config, tx)?;
+//!
 //!     Ok(())
 //! }
 //! ```
 
 pub mod db;
+pub mod geyser;
 pub mod seed;
 
 pub use db::{Database, DatabaseError};
+pub use geyser::{GeyserConfig, GeyserListener, GeyserMetrics};
