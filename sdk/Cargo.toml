@@ -1,0 +1,35 @@
+[package]
+name = "matchbook-sdk"
+version = "0.1.0"
+edition = "2021"
+authors = ["Matchbook Team"]
+description = "Rust SDK for Matchbook CLOB - core types and client library"
+license = "MIT"
+repository = "https://github.com/joaquinbejar/matchbook"
+
+[dependencies]
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Time handling
+chrono = { workspace = true }
+
+# Decimal for precise numeric handling
+rust_decimal = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+
+# Solana types
+bs58 = { workspace = true }
+
+[dev-dependencies]
+tokio-test = { workspace = true }
+
+[features]
+default = []
+
+[lib]
+name = "matchbook_sdk"
+path = "src/lib.rs"
