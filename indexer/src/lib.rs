@@ -23,6 +23,14 @@
 //! - [`GeyserListener`]: Main listener that streams account updates
 //! - [`GeyserMetrics`]: Metrics for monitoring connection health
 //!
+//! # Account Parser
+//!
+//! The [`parser`] module deserializes raw Solana account data into structured types:
+//!
+//! - [`AccountParser`]: Main parser for all account types
+//! - [`ParsedAccount`]: Enum of parsed account variants
+//! - [`ParserMetrics`]: Metrics for parse operations
+//!
 //! # Usage
 //!
 //! ```rust,ignore
@@ -49,7 +57,9 @@
 
 pub mod db;
 pub mod geyser;
+pub mod parser;
 pub mod seed;
 
 pub use db::{Database, DatabaseError};
 pub use geyser::{GeyserConfig, GeyserListener, GeyserMetrics};
+pub use parser::{AccountParser, ParsedAccount, ParserMetrics};
