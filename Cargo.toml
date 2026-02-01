@@ -12,6 +12,7 @@ repository = "https://github.com/joaquinbejar/matchbook.git"
 members = [
     ".",
     "program",
+    "indexer",
 ]
 resolver = "2"
 

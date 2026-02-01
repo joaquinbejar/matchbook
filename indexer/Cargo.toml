@@ -1,0 +1,50 @@
+[package]
+name = "matchbook-indexer"
+version = "0.1.0"
+edition = "2021"
+authors = ["Matchbook Team"]
+description = "Off-chain indexer and database layer for Matchbook CLOB"
+license = "MIT"
+repository = "https://github.com/joaquinbejar/matchbook"
+
+[dependencies]
+# Async runtime
+tokio = { version = "1.43", features = ["full"] }
+
+# Database
+sqlx = { version = "0.8", features = [
+    "runtime-tokio",
+    "tls-rustls",
+    "postgres",
+    "chrono",
+    "rust_decimal",
+    "migrate",
+] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Time handling
+chrono = { version = "0.4", features = ["serde"] }
+
+# Decimal for precise numeric handling
+rust_decimal = { version = "1.36", features = ["db-postgres"] }
+
+# Error handling
+thiserror = "2.0"
+anyhow = "1.0"
+
+# Logging
+tracing = "0.1"
+
+[dev-dependencies]
+# Testing
+tokio-test = "0.4"
+
+[features]
+default = []
+
+[lib]
+name = "matchbook_indexer"
+path = "src/lib.rs"
