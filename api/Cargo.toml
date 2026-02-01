@@ -9,37 +9,36 @@ repository = "https://github.com/joaquinbejar/matchbook"
 
 [dependencies]
 # Web framework
-axum = { version = "0.7", features = ["macros"] }
-tower = { version = "0.4", features = ["limit", "buffer"] }
-tower-http = { version = "0.5", features = ["cors", "trace"] }
+axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
 
 # Async runtime
-tokio = { version = "1.43", features = ["full"] }
+tokio = { workspace = true }
 
 # Serialization
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+serde = { workspace = true }
+serde_json = { workspace = true }
 
 # Time handling
-chrono = { version = "0.4", features = ["serde"] }
+chrono = { workspace = true }
 
 # Error handling
-thiserror = "2.0"
-anyhow = "1.0"
+thiserror = { workspace = true }
+anyhow = { workspace = true }
 
 # Logging
-tracing = "0.1"
+tracing = { workspace = true }
 
 # Solana types
-bs58 = "0.5"
+bs58 = { workspace = true }
 
 # Internal dependencies
-matchbook-indexer = { path = "../indexer" }
+matchbook-indexer = { workspace = true }
 
 [dev-dependencies]
-# Testing
-tokio-test = "0.4"
-axum-test = "15.0"
+tokio-test = { workspace = true }
+axum-test = { workspace = true }
 
 [features]
 default = []

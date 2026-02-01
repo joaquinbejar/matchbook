@@ -15,18 +15,24 @@ pub fn create_router(state: AppState) -> Router {
         .route("/health", get(health_check))
         // Market endpoints
         .route("/v1/markets", get(handlers::list_markets))
-        .route("/v1/markets/:market", get(handlers::get_market))
+        .route("/v1/markets/{market}", get(handlers::get_market))
         .route(
-            "/v1/markets/:market/orderbook",
+            "/v1/markets/{market}/orderbook",
             get(handlers::get_orderbook),
         )
-        .route("/v1/markets/:market/trades", get(handlers::get_trades))
-        .route("/v1/markets/:market/candles", get(handlers::get_candles))
+        .route("/v1/markets/{market}/trades", get(handlers::get_trades))
+        .route("/v1/markets/{market}/candles", get(handlers::get_candles))
         // Account endpoints
-        .route("/v1/accounts/:owner/orders", get(handlers::get_user_orders))
-        .route("/v1/accounts/:owner/trades", get(handlers::get_user_trades))
         .route(
-            "/v1/accounts/:owner/balances",
+            "/v1/accounts/{owner}/orders",
+            get(handlers::get_user_orders),
+        )
+        .route(
+            "/v1/accounts/{owner}/trades",
+            get(handlers::get_user_trades),
+        )
+        .route(
+            "/v1/accounts/{owner}/balances",
             get(handlers::get_user_balances),
         )
         // Transaction building endpoints
