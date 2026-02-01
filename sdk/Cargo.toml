@@ -26,6 +26,12 @@ bs58 = { workspace = true }
 solana-sdk = { workspace = true }
 borsh = { workspace = true }
 
+# HTTP client
+reqwest = { workspace = true }
+
+# Async runtime
+tokio = { workspace = true }
+
 [dev-dependencies]
 tokio-test = { workspace = true }
 
