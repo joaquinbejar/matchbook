@@ -82,6 +82,10 @@ deadpool-redis = "0.21"
 # HTTP client
 reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
 
+# WebSocket
+tokio-tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"] }
+futures-util = "0.3"
+
 # Internal crates
 matchbook-indexer = { path = "indexer" }
 
