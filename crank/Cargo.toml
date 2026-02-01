@@ -1,0 +1,42 @@
+[package]
+name = "matchbook-crank"
+version = "0.1.0"
+edition = "2021"
+authors = ["Matchbook Team"]
+description = "Crank service for Matchbook CLOB - monitors and executes order matching"
+license = "MIT"
+repository = "https://github.com/joaquinbejar/matchbook"
+
+[dependencies]
+# Async runtime
+tokio = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Time handling
+chrono = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+
+# Solana types
+bs58 = { workspace = true }
+
+# Internal dependencies
+matchbook-indexer = { workspace = true }
+
+[dev-dependencies]
+tokio-test = { workspace = true }
+
+[features]
+default = []
+
+[lib]
+name = "matchbook_crank"
+path = "src/lib.rs"
