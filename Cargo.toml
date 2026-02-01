@@ -26,10 +26,10 @@ anchor-spl = "0.32"
 solana-program = "3.0"
 
 # Async runtime
-tokio = { version = "1.43", features = ["full"] }
-tokio-stream = "0.1"
-tokio-test = "0.4"
-futures = "0.3"
+tokio = { version = "1.49.0", features = ["full"] }
+tokio-stream = "0.1.18"
+tokio-test = "0.4.5"
+futures = "0.3.31"
 
 # gRPC and Geyser
 tonic = { version = "0.12", features = ["tls", "tls-roots"] }
@@ -48,28 +48,28 @@ sqlx = { version = "0.8", features = [
 # Web framework
 axum = { version = "0.7", features = ["macros"] }
 axum-test = "15.7"
-tower = { version = "0.5", features = ["limit", "buffer"] }
-tower-http = { version = "0.6", features = ["cors", "trace"] }
+tower = { version = "0.5.3", features = ["limit", "buffer"] }
+tower-http = { version = "0.6.8", features = ["cors", "trace"] }
 
 # Serialization
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
 
 # Time handling
-chrono = { version = "0.4", features = ["serde"] }
+chrono = { version = "0.4.43", features = ["serde"] }
 
 # Decimal for precise numeric handling
-rust_decimal = { version = "1.37", features = ["db-postgres"] }
+rust_decimal = { version = "1.40.0", features = ["db-postgres"] }
 
 # Error handling
-thiserror = "2.0"
-anyhow = "1.0"
+thiserror = "2.0.18"
+anyhow = "1.0.100"
 
 # Logging
-tracing = "0.1"
+tracing = "0.1.44"
 
 # Solana types
-bs58 = "0.5"
+bs58 = "0.5.1"
 
 # Internal crates
 matchbook-indexer = { path = "indexer" }
