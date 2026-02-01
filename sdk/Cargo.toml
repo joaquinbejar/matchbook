@@ -23,6 +23,8 @@ thiserror = { workspace = true }
 
 # Solana types
 bs58 = { workspace = true }
+solana-sdk = { workspace = true }
+borsh = { workspace = true }
 
 [dev-dependencies]
 tokio-test = { workspace = true }
