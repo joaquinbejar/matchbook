@@ -72,6 +72,10 @@ tracing = "0.1"
 # Solana types
 bs58 = "0.5"
 
+# Redis
+redis = { version = "0.29", features = ["tokio-comp", "connection-manager"] }
+deadpool-redis = "0.21"
+
 # Internal crates
 matchbook-indexer = { path = "indexer" }
 

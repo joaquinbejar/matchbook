@@ -40,6 +40,10 @@ tracing = { workspace = true }
 # Solana types
 bs58 = { workspace = true }
 
+# Redis
+redis = { workspace = true }
+deadpool-redis = { workspace = true }
+
 [dev-dependencies]
 tokio-test = { workspace = true }
 

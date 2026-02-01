@@ -72,6 +72,7 @@
 //! ```
 
 pub mod book;
+pub mod cache;
 pub mod db;
 pub mod events;
 pub mod geyser;
@@ -79,6 +80,7 @@ pub mod parser;
 pub mod seed;
 
 pub use book::{BookBuilder, BookMetrics, FullOrderBook};
+pub use cache::{CacheMetrics, RedisCache, RedisConfig, RedisPubSub};
 pub use db::{Database, DatabaseError};
 pub use events::{EventCursor, EventMetrics, EventProcessor};
 pub use geyser::{GeyserConfig, GeyserListener, GeyserMetrics};
