@@ -39,6 +39,14 @@
 //! - [`FullOrderBook`]: Complete order book for a single market
 //! - [`BookMetrics`]: Metrics for book operations
 //!
+//! # Event Processor
+//!
+//! The [`events`] module processes on-chain events (fills and cancellations):
+//!
+//! - [`EventProcessor`]: Processes events with idempotency
+//! - [`EventCursor`]: Tracks processing progress per market
+//! - [`EventMetrics`]: Metrics for event processing
+//!
 //! # Usage
 //!
 //! ```rust,ignore
@@ -65,11 +73,13 @@
 
 pub mod book;
 pub mod db;
+pub mod events;
 pub mod geyser;
 pub mod parser;
 pub mod seed;
 
 pub use book::{BookBuilder, BookMetrics, FullOrderBook};
 pub use db::{Database, DatabaseError};
+pub use events::{EventCursor, EventMetrics, EventProcessor};
 pub use geyser::{GeyserConfig, GeyserListener, GeyserMetrics};
 pub use parser::{AccountParser, ParsedAccount, ParserMetrics};
