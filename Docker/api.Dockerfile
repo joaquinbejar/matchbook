@@ -38,7 +38,7 @@ RUN cargo chef cook --release --recipe-path recipe.json
 
 # Copy source code and build application
 COPY . .
-RUN cargo build --release --bin matchbook-api
+RUN cargo build --release -p matchbook-api --bin matchbook-api
 
 # -----------------------------------------------------------------------------
 # Stage 4: Runtime - Minimal production image
