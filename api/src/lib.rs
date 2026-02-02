@@ -42,6 +42,6 @@ pub mod state;
 pub mod ws;
 
 pub use error::ApiError;
-pub use server::Server;
+pub use server::{Server, ServerConfig};
 pub use state::AppState;
 pub use ws::{Channel, ChannelManager, WsMetrics, WsState};

@@ -69,6 +69,7 @@ anyhow = "1.0"
 
 # Logging
 tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Solana types
 bs58 = "0.5"
