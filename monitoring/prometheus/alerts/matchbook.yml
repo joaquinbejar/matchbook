@@ -1,26 +1,29 @@
 # Matchbook alerting rules
+# Reference: .internalDoc/08-operations.md
 groups:
   - name: matchbook-indexer
     rules:
       - alert: IndexerSlotLagHigh
-        expr: indexer_slot_lag > 10
-        for: 2m
+        expr: indexer_slot_lag > 100
+        for: 5m
         labels:
           severity: warning
           service: indexer
         annotations:
           summary: "Indexer slot lag is high"
           description: "Indexer is {{ $value }} slots behind the tip"
+          runbook_url: "https://github.com/joaquinbejar/matchbook/blob/main/docs/runbooks/indexer-lag.md"
 
       - alert: IndexerSlotLagCritical
-        expr: indexer_slot_lag > 50
-        for: 1m
+        expr: indexer_slot_lag > 500
+        for: 2m
         labels:
           severity: critical
           service: indexer
         annotations:
           summary: "Indexer slot lag is critical"
           description: "Indexer is {{ $value }} slots behind. Market data may be stale."
+          runbook_url: "https://github.com/joaquinbejar/matchbook/blob/main/docs/runbooks/indexer-lag.md"
 
       - alert: IndexerParseErrorsHigh
         expr: rate(indexer_parse_errors_total[5m]) > 1
@@ -30,17 +33,19 @@ groups:
           service: indexer
         annotations:
           summary: "Indexer parse error rate is high"
-          description: "{{ $value | printf \"%.2f\" }} parse errors per second"
+          description: '{{ $value | printf "%.2f" }} parse errors per second'
+          runbook_url: "https://github.com/joaquinbejar/matchbook/blob/main/docs/runbooks/indexer-errors.md"
 
       - alert: IndexerDown
         expr: up{job="indexer"} == 0
-        for: 1m
+        for: 2m
         labels:
           severity: critical
           service: indexer
         annotations:
           summary: "Indexer is down"
-          description: "Indexer service is not responding"
+          description: "Indexer service is not responding for more than 2 minutes"
+          runbook_url: "https://github.com/joaquinbejar/matchbook/blob/main/docs/runbooks/service-down.md"
 
   - name: matchbook-api
     rules:
@@ -52,29 +57,32 @@ groups:
           service: api
         annotations:
           summary: "API latency is high"
-          description: "99th percentile latency is {{ $value | printf \"%.3f\" }}s"
+          description: '99th percentile latency is {{ $value | printf "%.3f" }}s'
+          runbook_url: "https://github.com/joaquinbejar/matchbook/blob/main/docs/runbooks/api-latency.md"
 
       - alert: APIHighErrorRate
         expr: |
           sum(rate(api_requests_total{status=~"5.."}[5m])) 
-          / sum(rate(api_requests_total[5m])) > 0.01
+          / sum(rate(api_requests_total[5m])) > 0.05
         for: 5m
         labels:
           severity: critical
           service: api
         annotations:
           summary: "API error rate is high"
-          description: "Error rate is {{ $value | humanizePercentage }}"
+          description: "Error rate is {{ $value | humanizePercentage }} (threshold: 5%)"
+          runbook_url: "https://github.com/joaquinbejar/matchbook/blob/main/docs/runbooks/api-errors.md"
 
       - alert: APIDown
         expr: up{job="api"} == 0
-        for: 1m
+        for: 2m
         labels:
           severity: critical
           service: api
         annotations:
           summary: "API is down"
-          description: "API service is not responding"
+          description: "API service is not responding for more than 2 minutes"
+          runbook_url: "https://github.com/joaquinbejar/matchbook/blob/main/docs/runbooks/service-down.md"
 
       - alert: APIHighConnectionCount
         expr: api_active_connections > 1000
@@ -85,6 +93,7 @@ groups:
         annotations:
           summary: "High number of API connections"
           description: "{{ $value }} active connections"
+          runbook_url: "https://github.com/joaquinbejar/matchbook/blob/main/docs/runbooks/api-connections.md"
 
   - name: matchbook-crank
     rules:
@@ -99,16 +108,18 @@ groups:
         annotations:
           summary: "Crank failure rate is high"
           description: "{{ $value | humanizePercentage }} of crank transactions are failing"
+          runbook_url: "https://github.com/joaquinbejar/matchbook/blob/main/docs/runbooks/crank-failures.md"
 
       - alert: CrankDown
         expr: up{job="crank"} == 0
-        for: 1m
+        for: 2m
         labels:
           severity: critical
           service: crank
         annotations:
           summary: "Crank is down"
-          description: "Crank service is not responding"
+          description: "Crank service is not responding for more than 2 minutes"
+          runbook_url: "https://github.com/joaquinbejar/matchbook/blob/main/docs/runbooks/service-down.md"
 
       - alert: CrankLowProfitability
         expr: crank_profit_lamports < 0
@@ -119,6 +130,19 @@ groups:
         annotations:
           summary: "Crank is not profitable"
           description: "Crank profit is {{ $value }} lamports"
+          runbook_url: "https://github.com/joaquinbejar/matchbook/blob/main/docs/runbooks/crank-profitability.md"
+
+      - alert: CrankNotMatching
+        expr: |
+          (market_crossed_orders > 0) and (rate(crank_matches_executed_total[5m]) == 0)
+        for: 5m
+        labels:
+          severity: critical
+          service: crank
+        annotations:
+          summary: "Crank not matching crossed orders"
+          description: "There are crossed orders but no matches have been executed in 5 minutes"
+          runbook_url: "https://github.com/joaquinbejar/matchbook/blob/main/docs/runbooks/crank-not-matching.md"
 
   - name: matchbook-websocket
     rules:
@@ -131,6 +155,7 @@ groups:
         annotations:
           summary: "High number of WebSocket connections"
           description: "{{ $value }} active WebSocket connections"
+          runbook_url: "https://github.com/joaquinbejar/matchbook/blob/main/docs/runbooks/websocket-connections.md"
 
       - alert: WebSocketMessageBacklog
         expr: ws_message_queue_size > 10000
@@ -141,28 +166,31 @@ groups:
         annotations:
           summary: "WebSocket message backlog"
           description: "{{ $value }} messages in queue"
+          runbook_url: "https://github.com/joaquinbejar/matchbook/blob/main/docs/runbooks/websocket-backlog.md"
 
   - name: matchbook-infrastructure
     rules:
       - alert: HighMemoryUsage
         expr: |
           (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) > 0.9
-        for: 5m
+        for: 10m
         labels:
           severity: warning
         annotations:
           summary: "High memory usage"
           description: "Memory usage is {{ $value | humanizePercentage }}"
+          runbook_url: "https://github.com/joaquinbejar/matchbook/blob/main/docs/runbooks/high-memory.md"
 
       - alert: HighCPUUsage
         expr: |
           100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 90
-        for: 5m
+        for: 10m
         labels:
           severity: warning
         annotations:
           summary: "High CPU usage"
-          description: "CPU usage is {{ $value | printf \"%.1f\" }}%"
+          description: 'CPU usage is {{ $value | printf "%.1f" }}%'
+          runbook_url: "https://github.com/joaquinbejar/matchbook/blob/main/docs/runbooks/high-cpu.md"
 
       - alert: DiskSpaceLow
         expr: |
@@ -173,3 +201,65 @@ groups:
         annotations:
           summary: "Disk space is low"
           description: "Only {{ $value | humanizePercentage }} disk space remaining"
+          runbook_url: "https://github.com/joaquinbejar/matchbook/blob/main/docs/runbooks/disk-space.md"
+
+  - name: matchbook-database
+    rules:
+      - alert: DatabaseConnectionErrors
+        expr: rate(db_connection_errors_total[1m]) > 10
+        for: 2m
+        labels:
+          severity: critical
+          service: database
+        annotations:
+          summary: "High database connection error rate"
+          description: '{{ $value | printf "%.1f" }} connection errors per minute'
+          runbook_url: "https://github.com/joaquinbejar/matchbook/blob/main/docs/runbooks/database-connections.md"
+
+      - alert: DatabaseConnectionPoolExhausted
+        expr: db_connection_pool_available == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: database
+        annotations:
+          summary: "Database connection pool exhausted"
+          description: "No available connections in the pool"
+          runbook_url: "https://github.com/joaquinbejar/matchbook/blob/main/docs/runbooks/database-connections.md"
+
+      - alert: DatabaseSlowQueries
+        expr: rate(db_slow_queries_total[5m]) > 1
+        for: 5m
+        labels:
+          severity: warning
+          service: database
+        annotations:
+          summary: "High rate of slow database queries"
+          description: '{{ $value | printf "%.2f" }} slow queries per second'
+          runbook_url: "https://github.com/joaquinbejar/matchbook/blob/main/docs/runbooks/database-slow-queries.md"
+
+  - name: matchbook-event-queue
+    rules:
+      - alert: EventQueueNearFull
+        expr: |
+          (orderbook_event_queue_depth / orderbook_event_queue_capacity) > 0.8
+        for: 5m
+        labels:
+          severity: critical
+          service: orderbook
+        annotations:
+          summary: "Event queue is nearly full"
+          description: "Event queue is {{ $value | humanizePercentage }} full. ConsumeEvents transactions needed."
+          runbook_url: "https://github.com/joaquinbejar/matchbook/blob/main/docs/runbooks/event-queue-full.md"
+
+      - alert: EventQueueNotDraining
+        expr: |
+          increase(orderbook_event_queue_depth[10m]) > 0 and rate(crank_consume_events_total[10m]) == 0
+        for: 5m
+        labels:
+          severity: warning
+          service: orderbook
+        annotations:
+          summary: "Event queue is not being drained"
+          description: "Event queue is growing but no ConsumeEvents transactions are being processed"
+          runbook_url: "https://github.com/joaquinbejar/matchbook/blob/main/docs/runbooks/event-queue-full.md"

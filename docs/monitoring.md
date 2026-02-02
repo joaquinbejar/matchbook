@@ -38,10 +38,18 @@ open http://localhost:9092
                     │    :9092    │
                     └──────┬──────┘
                            │
-                    ┌──────▼──────┐
-                    │   Grafana   │
-                    │    :3000    │
-                    └─────────────┘
+              ┌────────────┼────────────┐
+              │                         │
+       ┌──────▼──────┐          ┌───────▼───────┐
+       │   Grafana   │          │ Alertmanager  │
+       │    :3000    │          │    :9093      │
+       └─────────────┘          └───────┬───────┘
+                                        │
+                          ┌─────────────┼─────────────┐
+                          │             │             │
+                     ┌────▼────┐  ┌─────▼─────┐  ┌────▼────┐
+                     │  Slack  │  │ PagerDuty │  │  Email  │
+                     └─────────┘  └───────────┘  └─────────┘
 ```
 
 ## Metrics
@@ -120,23 +128,163 @@ open http://localhost:9092
 - Order book depth
 - Volume over time
 
-## Alerts
+## Alerting
 
-### Critical Alerts
+Matchbook uses Prometheus Alertmanager for alert routing and notification.
+
+### Access Alertmanager
+
+```bash
+# Local development
+open http://localhost:9093
+
+# View active alerts
+curl http://localhost:9093/api/v2/alerts
+```
+
+### Severity Levels
+
+| Severity | Response | Notification |
+|----------|----------|--------------|
+| **Critical** | Immediate action required | PagerDuty + Slack |
+| **Warning** | Investigate soon | Slack |
+| **Info** | Informational | Log only |
+
+### Alert Rules
+
+#### Critical Alerts
 
 | Alert | Condition | Description |
 |-------|-----------|-------------|
-| `ServiceDown` | `up == 0` for 1m | Service not responding |
-| `IndexerSlotLagCritical` | `slot_lag > 50` for 1m | Indexer severely behind |
-| `APIHighErrorRate` | `error_rate > 1%` for 5m | High API error rate |
+| `IndexerDown` | `up == 0` for 2m | Indexer not responding |
+| `IndexerSlotLagCritical` | `slot_lag > 500` for 2m | Indexer severely behind |
+| `APIDown` | `up == 0` for 2m | API not responding |
+| `APIHighErrorRate` | `error_rate > 5%` for 5m | High API error rate |
+| `CrankDown` | `up == 0` for 2m | Crank not responding |
+| `CrankNotMatching` | Crossed orders, no matches for 5m | Crank not executing matches |
+| `EventQueueNearFull` | Queue > 80% capacity for 5m | Event queue needs draining |
+| `DatabaseConnectionErrors` | > 10 errors/min for 2m | Database connection issues |
+| `DiskSpaceLow` | < 10% free for 5m | Disk space critical |
 
-### Warning Alerts
+#### Warning Alerts
 
 | Alert | Condition | Description |
 |-------|-----------|-------------|
-| `IndexerSlotLagHigh` | `slot_lag > 10` for 2m | Indexer falling behind |
+| `IndexerSlotLagHigh` | `slot_lag > 100` for 5m | Indexer falling behind |
 | `APIHighLatency` | `p99 > 500ms` for 5m | High API latency |
 | `CrankHighFailureRate` | `failure_rate > 10%` for 5m | Crank transactions failing |
+| `CrankLowProfitability` | `profit < 0` for 10m | Crank not profitable |
+| `HighMemoryUsage` | `> 90%` for 10m | High memory usage |
+| `HighCPUUsage` | `> 90%` for 10m | High CPU usage |
+| `WebSocketHighConnectionCount` | `> 5000` for 5m | Many WebSocket connections |
+
+### Alertmanager Configuration
+
+The Alertmanager configuration is in `monitoring/alertmanager/alertmanager.yml`:
+
+```yaml
+route:
+  receiver: 'slack-warnings'
+  group_by: ['alertname', 'service', 'severity']
+  routes:
+    - match:
+        severity: critical
+      receiver: 'pagerduty-critical'
+    - match:
+        severity: warning
+      receiver: 'slack-warnings'
+
+receivers:
+  - name: 'slack-warnings'
+    slack_configs:
+      - channel: '#matchbook-alerts'
+  - name: 'pagerduty-critical'
+    pagerduty_configs:
+      - service_key: '<YOUR_KEY>'
+```
+
+### Setting Up Notification Channels
+
+#### Slack
+
+1. Create a Slack webhook: https://api.slack.com/messaging/webhooks
+2. Set the webhook URL in `alertmanager.yml`:
+   ```yaml
+   global:
+     slack_api_url: 'https://hooks.slack.com/services/YOUR/WEBHOOK/URL'
+   ```
+
+#### PagerDuty
+
+1. Create a PagerDuty service and get the integration key
+2. Set the service key in `alertmanager.yml`:
+   ```yaml
+   receivers:
+     - name: 'pagerduty-critical'
+       pagerduty_configs:
+         - service_key: 'YOUR_SERVICE_KEY'
+   ```
+
+#### Email
+
+1. Configure SMTP settings in `alertmanager.yml`:
+   ```yaml
+   global:
+     smtp_smarthost: 'smtp.example.com:587'
+     smtp_from: 'alertmanager@matchbook.io'
+     smtp_auth_username: 'user'
+     smtp_auth_password: 'password'
+   ```
+
+### Adding New Alerts
+
+1. Add the alert rule to `monitoring/prometheus/alerts/matchbook.yml`:
+   ```yaml
+   - alert: MyNewAlert
+     expr: my_metric > threshold
+     for: 5m
+     labels:
+       severity: warning
+       service: my-service
+     annotations:
+       summary: "Alert summary"
+       description: "Detailed description with {{ $value }}"
+       runbook_url: "https://github.com/joaquinbejar/matchbook/blob/main/docs/runbooks/my-alert.md"
+   ```
+
+2. Reload Prometheus:
+   ```bash
+   curl -X POST http://localhost:9092/-/reload
+   ```
+
+### Silencing Alerts
+
+To temporarily silence an alert:
+
+```bash
+# Via Alertmanager UI
+open http://localhost:9093/#/silences
+
+# Via API
+curl -X POST http://localhost:9093/api/v2/silences \
+  -H "Content-Type: application/json" \
+  -d '{
+    "matchers": [{"name": "alertname", "value": "MyAlert", "isRegex": false}],
+    "startsAt": "2024-01-01T00:00:00Z",
+    "endsAt": "2024-01-01T01:00:00Z",
+    "createdBy": "admin",
+    "comment": "Maintenance window"
+  }'
+```
+
+### Inhibition Rules
+
+Alerts are automatically suppressed when related critical alerts fire:
+
+- `IndexerDown` suppresses `IndexerSlotLagHigh`
+- `APIDown` suppresses `APIHighLatency`, `APIHighErrorRate`
+- `CrankDown` suppresses `CrankHighFailureRate`
+- Critical alerts suppress warning alerts for the same service
 
 ## Adding New Metrics
 

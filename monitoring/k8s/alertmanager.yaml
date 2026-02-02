@@ -1,0 +1,216 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alertmanager-config
+  namespace: matchbook
+  labels:
+    app.kubernetes.io/name: alertmanager
+    app.kubernetes.io/part-of: matchbook
+data:
+  alertmanager.yml: |
+    global:
+      resolve_timeout: 5m
+      smtp_smarthost: 'smtp.example.com:587'
+      smtp_from: 'alertmanager@matchbook.io'
+      smtp_require_tls: true
+      pagerduty_url: 'https://events.pagerduty.com/v2/enqueue'
+
+    templates:
+      - '/etc/alertmanager/templates/*.tmpl'
+
+    route:
+      receiver: 'slack-warnings'
+      group_by: ['alertname', 'service', 'severity']
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 4h
+      routes:
+        - match:
+            severity: critical
+          receiver: 'pagerduty-critical'
+          group_wait: 10s
+          repeat_interval: 1h
+          continue: true
+        - match:
+            severity: critical
+          receiver: 'slack-critical'
+          group_wait: 10s
+        - match:
+            severity: warning
+          receiver: 'slack-warnings'
+        - match:
+            severity: info
+          receiver: 'null'
+
+    inhibit_rules:
+      - source_match:
+          alertname: 'IndexerDown'
+        target_match:
+          alertname: 'IndexerLagHigh'
+        equal: ['service']
+      - source_match:
+          alertname: 'APIDown'
+        target_match_re:
+          alertname: 'API.*'
+        equal: ['service']
+      - source_match:
+          alertname: 'CrankDown'
+        target_match:
+          alertname: 'CrankHighFailureRate'
+        equal: ['service']
+      - source_match:
+          severity: 'critical'
+        target_match:
+          severity: 'warning'
+        equal: ['alertname', 'service']
+
+    receivers:
+      - name: 'null'
+      - name: 'slack-warnings'
+        slack_configs:
+          - api_url_file: '/etc/alertmanager/secrets/slack-webhook-url'
+            channel: '#matchbook-alerts'
+            send_resolved: true
+      - name: 'slack-critical'
+        slack_configs:
+          - api_url_file: '/etc/alertmanager/secrets/slack-webhook-url'
+            channel: '#matchbook-critical'
+            send_resolved: true
+      - name: 'pagerduty-critical'
+        pagerduty_configs:
+          - service_key_file: '/etc/alertmanager/secrets/pagerduty-service-key'
+            severity: critical
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: alertmanager-secrets
+  namespace: matchbook
+  labels:
+    app.kubernetes.io/name: alertmanager
+    app.kubernetes.io/part-of: matchbook
+type: Opaque
+stringData:
+  slack-webhook-url: "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
+  pagerduty-service-key: "YOUR_PAGERDUTY_SERVICE_KEY"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alertmanager
+  namespace: matchbook
+  labels:
+    app.kubernetes.io/name: alertmanager
+    app.kubernetes.io/part-of: matchbook
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: alertmanager
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: alertmanager
+        app.kubernetes.io/part-of: matchbook
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        fsGroup: 65534
+      containers:
+        - name: alertmanager
+          image: prom/alertmanager:v0.26.0
+          args:
+            - '--config.file=/etc/alertmanager/alertmanager.yml'
+            - '--storage.path=/alertmanager'
+            - '--web.external-url=http://alertmanager:9093'
+          ports:
+            - name: http
+              containerPort: 9093
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/alertmanager
+            - name: secrets
+              mountPath: /etc/alertmanager/secrets
+              readOnly: true
+            - name: templates
+              mountPath: /etc/alertmanager/templates
+            - name: storage
+              mountPath: /alertmanager
+      volumes:
+        - name: config
+          configMap:
+            name: alertmanager-config
+        - name: secrets
+          secret:
+            secretName: alertmanager-secrets
+        - name: templates
+          configMap:
+            name: alertmanager-templates
+        - name: storage
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: alertmanager
+  namespace: matchbook
+  labels:
+    app.kubernetes.io/name: alertmanager
+    app.kubernetes.io/part-of: matchbook
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 9093
+      targetPort: http
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: alertmanager
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alertmanager-templates
+  namespace: matchbook
+  labels:
+    app.kubernetes.io/name: alertmanager
+    app.kubernetes.io/part-of: matchbook
+data:
+  slack.tmpl: |
+    {{ define "slack.title" }}
+    [{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}] {{ .CommonLabels.alertname }}
+    {{ end }}
+
+    {{ define "slack.text" }}
+    {{ range .Alerts }}
+    *Alert:* {{ .Labels.alertname }}{{ if .Labels.severity }} - `{{ .Labels.severity }}`{{ end }}
+    *Service:* {{ .Labels.service }}
+    *Description:* {{ .Annotations.description }}
+    {{ if .Annotations.runbook_url }}*Runbook:* {{ .Annotations.runbook_url }}{{ end }}
+    {{ end }}
+    {{ end }}
+  pagerduty.tmpl: |
+    {{ define "pagerduty.description" }}
+    {{ .CommonLabels.alertname }}: {{ .CommonAnnotations.summary }}
+    {{ end }}

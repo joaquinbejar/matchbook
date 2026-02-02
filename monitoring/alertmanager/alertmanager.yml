@@ -1,0 +1,151 @@
+# Alertmanager configuration for Matchbook
+global:
+  # Default SMTP settings (override in receivers)
+  smtp_smarthost: 'smtp.example.com:587'
+  smtp_from: 'alertmanager@matchbook.io'
+  smtp_auth_username: 'alertmanager@matchbook.io'
+  smtp_auth_password: ''
+  smtp_require_tls: true
+
+  # Default Slack settings
+  slack_api_url: ''
+
+  # Default PagerDuty settings
+  pagerduty_url: 'https://events.pagerduty.com/v2/enqueue'
+
+  # Resolve timeout
+  resolve_timeout: 5m
+
+# Notification templates
+templates:
+  - '/etc/alertmanager/templates/*.tmpl'
+
+# Routing tree
+route:
+  # Default receiver
+  receiver: 'slack-warnings'
+  
+  # Group alerts by these labels
+  group_by: ['alertname', 'service', 'severity']
+  
+  # Wait before sending first notification for a group
+  group_wait: 30s
+  
+  # Wait before sending subsequent notifications for a group
+  group_interval: 5m
+  
+  # Wait before resending a notification
+  repeat_interval: 4h
+
+  # Child routes
+  routes:
+    # Critical alerts go to PagerDuty
+    - match:
+        severity: critical
+      receiver: 'pagerduty-critical'
+      group_wait: 10s
+      repeat_interval: 1h
+      continue: true
+
+    # Critical alerts also go to Slack
+    - match:
+        severity: critical
+      receiver: 'slack-critical'
+      group_wait: 10s
+
+    # Warning alerts go to Slack
+    - match:
+        severity: warning
+      receiver: 'slack-warnings'
+
+    # Info alerts are logged only
+    - match:
+        severity: info
+      receiver: 'null'
+
+# Inhibition rules - suppress alerts when related critical alerts are firing
+inhibit_rules:
+  # If IndexerDown is firing, suppress IndexerLagHigh
+  - source_match:
+      alertname: 'IndexerDown'
+    target_match:
+      alertname: 'IndexerLagHigh'
+    equal: ['service']
+
+  # If APIDown is firing, suppress APIHighLatency and APIHighErrorRate
+  - source_match:
+      alertname: 'APIDown'
+    target_match_re:
+      alertname: 'API.*'
+    equal: ['service']
+
+  # If CrankDown is firing, suppress CrankHighFailureRate
+  - source_match:
+      alertname: 'CrankDown'
+    target_match:
+      alertname: 'CrankHighFailureRate'
+    equal: ['service']
+
+  # Critical alerts suppress warning alerts for the same service
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['alertname', 'service']
+
+# Receivers
+receivers:
+  # Null receiver for info alerts (no notification)
+  - name: 'null'
+
+  # Slack channel for warnings
+  - name: 'slack-warnings'
+    slack_configs:
+      - channel: '#matchbook-alerts'
+        send_resolved: true
+        title: '{{ template "slack.title" . }}'
+        text: '{{ template "slack.text" . }}'
+        color: '{{ if eq .Status "firing" }}warning{{ else }}good{{ end }}'
+        actions:
+          - type: button
+            text: 'Runbook'
+            url: '{{ (index .Alerts 0).Annotations.runbook_url }}'
+          - type: button
+            text: 'Dashboard'
+            url: 'http://grafana:3000/d/matchbook-overview'
+
+  # Slack channel for critical alerts
+  - name: 'slack-critical'
+    slack_configs:
+      - channel: '#matchbook-critical'
+        send_resolved: true
+        title: '{{ template "slack.title" . }}'
+        text: '{{ template "slack.text" . }}'
+        color: '{{ if eq .Status "firing" }}danger{{ else }}good{{ end }}'
+        actions:
+          - type: button
+            text: 'Runbook'
+            url: '{{ (index .Alerts 0).Annotations.runbook_url }}'
+          - type: button
+            text: 'Dashboard'
+            url: 'http://grafana:3000/d/matchbook-overview'
+
+  # PagerDuty for critical alerts
+  - name: 'pagerduty-critical'
+    pagerduty_configs:
+      - service_key: ''  # Set via PAGERDUTY_SERVICE_KEY env var
+        severity: critical
+        description: '{{ template "pagerduty.description" . }}'
+        details:
+          firing: '{{ template "pagerduty.firing" . }}'
+          num_firing: '{{ .Alerts.Firing | len }}'
+          num_resolved: '{{ .Alerts.Resolved | len }}'
+
+  # Email for critical alerts (backup)
+  - name: 'email-critical'
+    email_configs:
+      - to: 'oncall@matchbook.io'
+        send_resolved: true
+        headers:
+          Subject: '[{{ .Status | toUpper }}] {{ .CommonLabels.alertname }}'
+        html: '{{ template "email.html" . }}'

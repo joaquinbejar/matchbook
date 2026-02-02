@@ -1,0 +1,44 @@
+{{ define "email.html" }}
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; padding: 20px; }
+    .header { padding: 10px; margin-bottom: 20px; }
+    .header.firing { background-color: #dc3545; color: white; }
+    .header.resolved { background-color: #28a745; color: white; }
+    .alert { border: 1px solid #ddd; margin-bottom: 10px; padding: 15px; }
+    .alert.critical { border-left: 4px solid #dc3545; }
+    .alert.warning { border-left: 4px solid #ffc107; }
+    .label { display: inline-block; padding: 2px 6px; margin: 2px; background: #e9ecef; border-radius: 3px; font-size: 12px; }
+    .runbook { margin-top: 10px; }
+    .runbook a { color: #007bff; }
+  </style>
+</head>
+<body>
+  <div class="header {{ .Status }}">
+    <h2>[{{ .Status | toUpper }}] {{ .CommonLabels.alertname }}</h2>
+  </div>
+  
+  {{ range .Alerts }}
+  <div class="alert {{ .Labels.severity }}">
+    <h3>{{ .Labels.alertname }}</h3>
+    <p><strong>Service:</strong> {{ .Labels.service }}</p>
+    <p><strong>Severity:</strong> {{ .Labels.severity }}</p>
+    <p><strong>Description:</strong> {{ .Annotations.description }}</p>
+    
+    <p><strong>Labels:</strong></p>
+    {{ range .Labels.SortedPairs }}
+    <span class="label">{{ .Name }}: {{ .Value }}</span>
+    {{ end }}
+    
+    {{ if .Annotations.runbook_url }}
+    <div class="runbook">
+      <strong>Runbook:</strong> <a href="{{ .Annotations.runbook_url }}">{{ .Annotations.runbook_url }}</a>
+    </div>
+    {{ end }}
+  </div>
+  {{ end }}
+</body>
+</html>
+{{ end }}
