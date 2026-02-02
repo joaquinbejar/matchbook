@@ -195,7 +195,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: ./Docker/Dockerfile.${{ matrix.service }}
+          file: ./Docker/${{ matrix.service }}.Dockerfile
           push: false
           tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-${{ matrix.service }}:test
           cache-from: type=gha

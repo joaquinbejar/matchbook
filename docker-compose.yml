@@ -59,7 +59,7 @@ services:
   indexer:
     build:
       context: .
-      dockerfile: Docker/Dockerfile.indexer
+      dockerfile: Docker/indexer.Dockerfile
     container_name: matchbook-indexer
     environment:
       RUST_LOG: ${RUST_LOG:-info}
@@ -82,7 +82,7 @@ services:
   api:
     build:
       context: .
-      dockerfile: Docker/Dockerfile.api
+      dockerfile: Docker/api.Dockerfile
     container_name: matchbook-api
     environment:
       RUST_LOG: ${RUST_LOG:-info}
@@ -108,7 +108,7 @@ services:
   crank:
     build:
       context: .
-      dockerfile: Docker/Dockerfile.crank
+      dockerfile: Docker/crank.Dockerfile
     container_name: matchbook-crank
     environment:
       RUST_LOG: ${RUST_LOG:-info}

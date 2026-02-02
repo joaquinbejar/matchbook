@@ -106,9 +106,9 @@ All Docker-related files are located in the `Docker/` directory:
 ```
 Docker/
 ├── .dockerignore          # Files to exclude from build context
-├── Dockerfile.api         # API server image
-├── Dockerfile.crank       # Crank service image
-└── Dockerfile.indexer     # Indexer service image
+├── api.Dockerfile         # API server image
+├── crank.Dockerfile       # Crank service image
+└── indexer.Dockerfile     # Indexer service image
 ```
 
 ```bash
@@ -119,7 +119,7 @@ docker buildx create --name matchbook-builder --use
 docker buildx build \
   --platform linux/amd64,linux/arm64 \
   -t ghcr.io/joaquinbejar/matchbook-api:latest \
-  -f Docker/Dockerfile.api \
+  -f Docker/api.Dockerfile \
   --push .
 ```
 
