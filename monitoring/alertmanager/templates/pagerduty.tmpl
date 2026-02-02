@@ -1,0 +1,14 @@
+{{ define "pagerduty.description" }}
+{{ .CommonLabels.alertname }}: {{ .CommonAnnotations.summary }}
+{{ end }}
+
+{{ define "pagerduty.firing" }}
+{{ range .Alerts.Firing }}
+Alert: {{ .Labels.alertname }}
+Service: {{ .Labels.service }}
+Severity: {{ .Labels.severity }}
+Description: {{ .Annotations.description }}
+{{ if .Annotations.runbook_url }}Runbook: {{ .Annotations.runbook_url }}{{ end }}
+---
+{{ end }}
+{{ end }}

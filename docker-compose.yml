@@ -164,6 +164,24 @@ services:
     networks:
       - matchbook-network
 
+  alertmanager:
+    image: prom/alertmanager:v0.26.0
+    container_name: matchbook-alertmanager
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--storage.path=/alertmanager"
+      - "--web.external-url=http://localhost:9093"
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - ./monitoring/alertmanager/templates:/etc/alertmanager/templates:ro
+      - alertmanager_data:/alertmanager
+    depends_on:
+      - prometheus
+    networks:
+      - matchbook-network
+
 # -----------------------------------------------------------------------------
 # Volumes
 # -----------------------------------------------------------------------------
@@ -176,6 +194,8 @@ volumes:
   prometheus_data:
     driver: local
   grafana_data:
+    driver: local
+  alertmanager_data:
     driver: local
 
 # -----------------------------------------------------------------------------
