@@ -9,6 +9,10 @@ on:
     # Run weekly on Mondays at 00:00 UTC
     - cron: "0 0 * * 1"
 
+permissions:
+  contents: read
+  security-events: write
+
 env:
   CARGO_TERM_COLOR: always
 
