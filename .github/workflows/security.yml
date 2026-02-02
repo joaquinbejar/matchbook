@@ -118,7 +118,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: ./${{ matrix.service }}/Dockerfile
+          file: ./Docker/Dockerfile.${{ matrix.service }}
           push: false
           load: true
           tags: matchbook-${{ matrix.service }}:scan

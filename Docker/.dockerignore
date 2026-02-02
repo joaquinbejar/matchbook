@@ -1,0 +1,47 @@
+# Build artifacts
+target/
+*.rs.bk
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Git
+.git/
+.gitignore
+
+# Documentation (not needed in image)
+.internalDoc/
+docs/
+*.md
+!README.md
+
+# Development files
+.windsurf/
+.env
+.env.*
+*.log
+
+# Test files
+tests/
+**/tests/
+**/*_test.rs
+
+# TypeScript SDK (separate build)
+ts-sdk/
+
+# CI/CD
+.github/
+
+# Docker files (avoid recursive copy)
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# Misc
+.DS_Store
+Thumbs.db
+*.bak

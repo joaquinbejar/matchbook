@@ -99,6 +99,18 @@ docker-compose build --no-cache
 
 ### Build for Multiple Architectures
 
+## Docker File Structure
+
+All Docker-related files are located in the `Docker/` directory:
+
+```
+Docker/
+├── .dockerignore          # Files to exclude from build context
+├── Dockerfile.api         # API server image
+├── Dockerfile.crank       # Crank service image
+└── Dockerfile.indexer     # Indexer service image
+```
+
 ```bash
 # Create builder
 docker buildx create --name matchbook-builder --use
@@ -107,7 +119,7 @@ docker buildx create --name matchbook-builder --use
 docker buildx build \
   --platform linux/amd64,linux/arm64 \
   -t ghcr.io/joaquinbejar/matchbook-api:latest \
-  -f api/Dockerfile \
+  -f Docker/Dockerfile.api \
   --push .
 ```
 
