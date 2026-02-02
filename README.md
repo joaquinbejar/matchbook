@@ -17,35 +17,37 @@ Matchbook is a decentralized exchange infrastructure that provides:
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                              Clients                                     │
-│                    (Web Apps, Trading Bots, SDKs)                        │
-└─────────────────────────────────────────────────────────────────────────┘
-                                    │
-                    ┌───────────────┼───────────────┐
-                    │               │               │
-                    ▼               ▼               ▼
-            ┌───────────┐   ┌───────────┐   ┌───────────┐
-            │ REST API  │   │ WebSocket │   │  Direct   │
-            │  :8080    │   │   :8081   │   │  On-chain │
-            └─────┬─────┘   └─────┬─────┘   └─────┬─────┘
-                  │               │               │
-                  └───────────────┼───────────────┘
-                                  │
-                    ┌─────────────┴─────────────┐
-                    │                           │
-                    ▼                           ▼
-            ┌───────────────┐         ┌─────────────────┐
-            │   Indexer     │         │  Solana Program │
-            │   (Geyser)    │◄────────│   (On-chain)    │
-            └───────┬───────┘         └─────────────────┘
-                    │
-                    ▼
-            ┌───────────────┐
-            │   Database    │
-            │  (TimescaleDB)│
-            └───────────────┘
+```mermaid
+flowchart TB
+    subgraph Clients["Clients"]
+        C1[Web Apps]
+        C2[Trading Bots]
+        C3[SDKs]
+    end
+
+    subgraph API["API Layer"]
+        REST["REST API<br/>:8080"]
+        WS["WebSocket<br/>:8081"]
+        Direct["Direct<br/>On-chain"]
+    end
+
+    subgraph Backend["Backend Services"]
+        Indexer["Indexer<br/>(Geyser)"]
+        Program["Solana Program<br/>(On-chain)"]
+        DB["Database<br/>(TimescaleDB)"]
+    end
+
+    Clients --> REST
+    Clients --> WS
+    Clients --> Direct
+
+    REST --> Indexer
+    REST --> Program
+    WS --> Indexer
+    Direct --> Program
+
+    Program --> Indexer
+    Indexer --> DB
 ```
 
 ## Quick Start
