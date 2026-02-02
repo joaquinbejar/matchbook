@@ -31,13 +31,10 @@ jobs:
         run: cargo audit || echo "::warning::Vulnerabilities found - review required"
 
   # Dependency review for PRs
-  # Note: Requires Dependency graph to be enabled in repo settings:
-  # https://github.com/joaquinbejar/matchbook/settings/security_analysis
   dependency-review:
     name: Dependency Review
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v6
 
