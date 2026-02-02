@@ -1,0 +1,155 @@
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+      version:
+        description: 'Image version/tag to deploy (e.g., v1.0.0, latest, sha-abc123)'
+        required: true
+        default: 'latest'
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  validate:
+    name: Validate Deployment
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.validate.outputs.environment }}
+      version: ${{ steps.validate.outputs.version }}
+    steps:
+      - name: Validate inputs
+        id: validate
+        run: |
+          echo "environment=${{ inputs.environment }}" >> $GITHUB_OUTPUT
+          echo "version=${{ inputs.version }}" >> $GITHUB_OUTPUT
+          echo "Deploying version ${{ inputs.version }} to ${{ inputs.environment }}"
+
+  deploy:
+    name: Deploy to ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    needs: validate
+    environment: ${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'v1.28.0'
+
+      - name: Configure kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBECONFIG }}" | base64 -d > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name: Set image version in Kustomize
+        run: |
+          cd k8s/overlays/${{ inputs.environment }}
+          
+          # Update image tags using kustomize
+          kustomize edit set image \
+            ghcr.io/joaquinbejar/matchbook-indexer:${{ inputs.version }} \
+            ghcr.io/joaquinbejar/matchbook-api:${{ inputs.version }} \
+            ghcr.io/joaquinbejar/matchbook-crank:${{ inputs.version }}
+
+      - name: Deploy to Kubernetes
+        run: |
+          kubectl apply -k k8s/overlays/${{ inputs.environment }}
+
+      - name: Wait for rollout
+        run: |
+          NAMESPACE="matchbook"
+          if [ "${{ inputs.environment }}" != "prod" ]; then
+            NAMESPACE="matchbook-${{ inputs.environment }}"
+          fi
+          
+          echo "Waiting for deployments in namespace: $NAMESPACE"
+          kubectl rollout status deployment/indexer -n $NAMESPACE --timeout=300s
+          kubectl rollout status deployment/api -n $NAMESPACE --timeout=300s
+          kubectl rollout status deployment/crank -n $NAMESPACE --timeout=300s
+
+  smoke-test:
+    name: Smoke Tests
+    runs-on: ubuntu-latest
+    needs: deploy
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get API endpoint
+        id: endpoint
+        run: |
+          case "${{ inputs.environment }}" in
+            dev)
+              echo "api_url=https://api-dev.matchbook.example" >> $GITHUB_OUTPUT
+              ;;
+            staging)
+              echo "api_url=https://api-staging.matchbook.example" >> $GITHUB_OUTPUT
+              ;;
+            prod)
+              echo "api_url=https://api.matchbook.example" >> $GITHUB_OUTPUT
+              ;;
+          esac
+
+      - name: Health check
+        run: |
+          echo "Checking health endpoint..."
+          for i in {1..10}; do
+            if curl -sf "${{ steps.endpoint.outputs.api_url }}/health"; then
+              echo "Health check passed"
+              exit 0
+            fi
+            echo "Attempt $i failed, retrying in 10s..."
+            sleep 10
+          done
+          echo "Health check failed after 10 attempts"
+          exit 1
+
+      - name: API smoke test
+        run: |
+          echo "Running API smoke tests..."
+          
+          # Test markets endpoint
+          curl -sf "${{ steps.endpoint.outputs.api_url }}/v1/markets" > /dev/null
+          echo "✓ Markets endpoint OK"
+          
+          echo "All smoke tests passed"
+
+  rollback:
+    name: Rollback on Failure
+    runs-on: ubuntu-latest
+    needs: [deploy, smoke-test]
+    if: failure()
+    steps:
+      - name: Configure kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBECONFIG }}" | base64 -d > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name: Rollback deployments
+        run: |
+          NAMESPACE="matchbook"
+          if [ "${{ inputs.environment }}" != "prod" ]; then
+            NAMESPACE="matchbook-${{ inputs.environment }}"
+          fi
+          
+          echo "Rolling back deployments in namespace: $NAMESPACE"
+          kubectl rollout undo deployment/indexer -n $NAMESPACE || true
+          kubectl rollout undo deployment/api -n $NAMESPACE || true
+          kubectl rollout undo deployment/crank -n $NAMESPACE || true
+
+      - name: Notify rollback
+        run: |
+          echo "::error::Deployment to ${{ inputs.environment }} failed and was rolled back"
