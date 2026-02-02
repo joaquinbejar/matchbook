@@ -15,7 +15,7 @@ This guide explains how to build and run Matchbook services using Docker.
 Start PostgreSQL and Redis without building the Rust services:
 
 ```bash
-docker-compose up -d postgres redis
+docker-compose -f Docker/docker-compose.yml up -d postgres redis
 ```
 
 ### 2. Start All Services
@@ -23,27 +23,27 @@ docker-compose up -d postgres redis
 Build and start all services:
 
 ```bash
-docker-compose up -d
+docker-compose -f Docker/docker-compose.yml up -d
 ```
 
 ### 3. View Logs
 
 ```bash
 # All services
-docker-compose logs -f
+docker-compose -f Docker/docker-compose.yml logs -f
 
 # Specific service
-docker-compose logs -f api
+docker-compose -f Docker/docker-compose.yml logs -f api
 ```
 
 ### 4. Stop Services
 
 ```bash
 # Stop but keep volumes
-docker-compose down
+docker-compose -f Docker/docker-compose.yml down
 
 # Stop and remove volumes (clean slate)
-docker-compose down -v
+docker-compose -f Docker/docker-compose.yml down -v
 ```
 
 ## Services
@@ -82,19 +82,19 @@ MAX_MATCHES_PER_TX=8
 ### Build All Services
 
 ```bash
-docker-compose build
+docker-compose -f Docker/docker-compose.yml build
 ```
 
 ### Build Specific Service
 
 ```bash
-docker-compose build api
+docker-compose -f Docker/docker-compose.yml build api
 ```
 
 ### Build with No Cache
 
 ```bash
-docker-compose build --no-cache
+docker-compose -f Docker/docker-compose.yml build --no-cache
 ```
 
 ### Build for Multiple Architectures
@@ -105,10 +105,12 @@ All Docker-related files are located in the `Docker/` directory:
 
 ```
 Docker/
-├── .dockerignore          # Files to exclude from build context
-├── api.Dockerfile         # API server image
-├── crank.Dockerfile       # Crank service image
-└── indexer.Dockerfile     # Indexer service image
+├── .dockerignore              # Files to exclude from build context
+├── api.Dockerfile             # API server image
+├── crank.Dockerfile           # Crank service image
+├── docker-compose.yml         # Local development compose
+├── docker-compose.prod.yml    # Production compose
+└── indexer.Dockerfile         # Indexer service image
 ```
 
 ```bash
@@ -137,17 +139,17 @@ export SOLANA_RPC_URL=https://api.mainnet-beta.solana.com
 export CRANK_KEYPAIR=your-keypair
 
 # Start services
-docker-compose -f docker-compose.prod.yml up -d
+docker-compose -f Docker/docker-compose.prod.yml up -d
 ```
 
 ### Using Pre-built Images
 
 ```bash
 # Pull latest images
-docker-compose -f docker-compose.prod.yml pull
+docker-compose -f Docker/docker-compose.prod.yml pull
 
 # Start with specific version
-VERSION=v1.0.0 docker-compose -f docker-compose.prod.yml up -d
+VERSION=v1.0.0 docker-compose -f Docker/docker-compose.prod.yml up -d
 ```
 
 ## Health Checks
@@ -171,14 +173,14 @@ curl http://localhost:9091/health
 
 Check logs:
 ```bash
-docker-compose logs <service-name>
+docker-compose -f Docker/docker-compose.yml logs <service-name>
 ```
 
 ### Database Connection Issues
 
 Verify PostgreSQL is healthy:
 ```bash
-docker-compose exec postgres pg_isready -U matchbook
+docker-compose -f Docker/docker-compose.yml exec postgres pg_isready -U matchbook
 ```
 
 ### Out of Memory
@@ -190,7 +192,7 @@ Increase Docker memory limit or reduce service resources in docker-compose.yml.
 Clear build cache:
 ```bash
 docker builder prune -a
-docker-compose build --no-cache
+docker-compose -f Docker/docker-compose.yml build --no-cache
 ```
 
 ## Image Sizes

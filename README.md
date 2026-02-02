@@ -65,7 +65,7 @@ git clone https://github.com/joaquinbejar/matchbook.git
 cd matchbook
 
 # Start local infrastructure
-docker-compose up -d
+docker-compose -f Docker/docker-compose.yml up -d
 
 # Build the on-chain program
 cargo build-sbf

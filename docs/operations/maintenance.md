@@ -221,7 +221,7 @@ docker pull rust:1.93-bookworm
 docker pull timescale/timescaledb:latest-pg15
 
 # Rebuild images
-docker-compose build --no-cache
+docker-compose -f Docker/docker-compose.yml build --no-cache
 ```
 
 ### GitHub Actions

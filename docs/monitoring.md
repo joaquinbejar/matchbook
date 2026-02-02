@@ -12,7 +12,7 @@ Matchbook uses:
 
 ```bash
 # Start all services including monitoring
-docker-compose up -d
+docker-compose -f Docker/docker-compose.yml up -d
 
 # Access Grafana
 open http://localhost:3000
