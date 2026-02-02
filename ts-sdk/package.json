@@ -1,6 +1,7 @@
 {
   "name": "@matchbook/sdk",
   "version": "0.1.0",
+  "type": "module",
   "description": "TypeScript SDK for Matchbook CLOB - type definitions and client library",
   "main": "dist/cjs/index.js",
   "module": "dist/esm/index.js",
@@ -44,12 +45,14 @@
     "directory": "ts-sdk"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.2",
     "@types/node": "^25.2.0",
-    "typescript": "^5.0.0",
-    "vitest": "^4.0.18",
+    "@typescript-eslint/eslint-plugin": "^8.54.0",
+    "@typescript-eslint/parser": "^8.54.0",
     "eslint": "^9.39.2",
-    "@typescript-eslint/eslint-plugin": "^7.0.0",
-    "@typescript-eslint/parser": "^7.0.0"
+    "typescript": "^5.0.0",
+    "typescript-eslint": "^8.54.0",
+    "vitest": "^4.0.18"
   },
   "engines": {
     "node": ">=18.0.0"
