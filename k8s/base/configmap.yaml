@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: matchbook-config
+  namespace: matchbook
+  labels:
+    app.kubernetes.io/name: matchbook
+    app.kubernetes.io/part-of: matchbook
+data:
+  # Logging
+  RUST_LOG: "info,matchbook=debug"
+
+  # API Server
+  API_HOST: "0.0.0.0"
+  API_PORT: "8080"
+  WS_PORT: "8081"
+
+  # Crank
+  MIN_PROFIT_LAMPORTS: "1000"
+  MAX_MATCHES_PER_TX: "8"

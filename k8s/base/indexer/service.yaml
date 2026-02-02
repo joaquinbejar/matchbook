@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: indexer
+  namespace: matchbook
+  labels:
+    app.kubernetes.io/name: indexer
+    app.kubernetes.io/component: indexer
+    app.kubernetes.io/part-of: matchbook
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: indexer
+    app.kubernetes.io/component: indexer
+  ports:
+    - name: metrics
+      port: 9090
+      targetPort: metrics
+      protocol: TCP

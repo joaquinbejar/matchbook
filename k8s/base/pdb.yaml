@@ -1,0 +1,29 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: api-pdb
+  namespace: matchbook
+  labels:
+    app.kubernetes.io/name: api
+    app.kubernetes.io/part-of: matchbook
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: api
+      app.kubernetes.io/component: api
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: indexer-pdb
+  namespace: matchbook
+  labels:
+    app.kubernetes.io/name: indexer
+    app.kubernetes.io/part-of: matchbook
+spec:
+  maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: indexer
+      app.kubernetes.io/component: indexer

@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: matchbook-config
+data:
+  RUST_LOG: "info,matchbook=debug"
+  MIN_PROFIT_LAMPORTS: "500"

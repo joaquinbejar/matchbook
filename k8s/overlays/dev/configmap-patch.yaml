@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: matchbook-config
+data:
+  RUST_LOG: "debug,matchbook=trace"
+  MIN_PROFIT_LAMPORTS: "100"

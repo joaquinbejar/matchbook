@@ -1,0 +1,32 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: matchbook
+
+resources:
+  - namespace.yaml
+  - serviceaccount.yaml
+  - configmap.yaml
+  - secrets.yaml
+  - indexer/deployment.yaml
+  - indexer/service.yaml
+  - api/deployment.yaml
+  - api/service.yaml
+  - api/hpa.yaml
+  - crank/deployment.yaml
+  - crank/service.yaml
+  - ingress.yaml
+  - pdb.yaml
+
+labels:
+  - pairs:
+      app.kubernetes.io/managed-by: kustomize
+      app.kubernetes.io/version: "0.1.0"
+
+images:
+  - name: ghcr.io/joaquinbejar/matchbook-indexer
+    newTag: latest
+  - name: ghcr.io/joaquinbejar/matchbook-api
+    newTag: latest
+  - name: ghcr.io/joaquinbejar/matchbook-crank
+    newTag: latest

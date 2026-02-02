@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: matchbook
+  labels:
+    app.kubernetes.io/name: matchbook
+    app.kubernetes.io/part-of: matchbook
