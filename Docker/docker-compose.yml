@@ -2,12 +2,12 @@
 # Matchbook Docker Compose - Local Development
 # =============================================================================
 #
-# Usage:
-#   docker-compose up -d              # Start all services
-#   docker-compose up -d postgres redis  # Start only infrastructure
-#   docker-compose logs -f api        # Follow API logs
-#   docker-compose down               # Stop all services
-#   docker-compose down -v            # Stop and remove volumes
+# Usage (from project root):
+#   docker-compose -f Docker/docker-compose.yml up -d
+#   docker-compose -f Docker/docker-compose.yml up -d postgres redis
+#   docker-compose -f Docker/docker-compose.yml logs -f api
+#   docker-compose -f Docker/docker-compose.yml down
+#   docker-compose -f Docker/docker-compose.yml down -v
 #
 # =============================================================================
 
@@ -27,7 +27,7 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./migrations:/docker-entrypoint-initdb.d:ro
+      - ../migrations:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U matchbook -d matchbook"]
       interval: 10s
@@ -58,8 +58,8 @@ services:
 
   indexer:
     build:
-      context: .
-      dockerfile: indexer/Dockerfile
+      context: ..
+      dockerfile: Docker/indexer.Dockerfile
     container_name: matchbook-indexer
     environment:
       RUST_LOG: ${RUST_LOG:-info}
@@ -81,8 +81,8 @@ services:
 
   api:
     build:
-      context: .
-      dockerfile: api/Dockerfile
+      context: ..
+      dockerfile: Docker/api.Dockerfile
     container_name: matchbook-api
     environment:
       RUST_LOG: ${RUST_LOG:-info}
@@ -107,8 +107,8 @@ services:
 
   crank:
     build:
-      context: .
-      dockerfile: crank/Dockerfile
+      context: ..
+      dockerfile: Docker/crank.Dockerfile
     container_name: matchbook-crank
     environment:
       RUST_LOG: ${RUST_LOG:-info}
@@ -139,9 +139,9 @@ services:
     ports:
       - "9092:9090"
     volumes:
-      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - ./monitoring/prometheus/alerts:/etc/prometheus/alerts:ro
-      - ./monitoring/prometheus/rules:/etc/prometheus/rules:ro
+      - ../monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../monitoring/prometheus/alerts:/etc/prometheus/alerts:ro
+      - ../monitoring/prometheus/rules:/etc/prometheus/rules:ro
       - prometheus_data:/prometheus
     networks:
       - matchbook-network
@@ -156,8 +156,8 @@ services:
     ports:
       - "3000:3000"
     volumes:
-      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
-      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - ../monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
       - grafana_data:/var/lib/grafana
     depends_on:
       - prometheus
@@ -174,8 +174,8 @@ services:
     ports:
       - "9093:9093"
     volumes:
-      - ./monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
-      - ./monitoring/alertmanager/templates:/etc/alertmanager/templates:ro
+      - ../monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - ../monitoring/alertmanager/templates:/etc/alertmanager/templates:ro
       - alertmanager_data:/alertmanager
     depends_on:
       - prometheus

@@ -30,7 +30,7 @@ kubectl get pods -l app.kubernetes.io/name=<service> -n matchbook -w
 
 ```bash
 # Docker
-docker-compose restart
+docker-compose -f Docker/docker-compose.yml restart
 
 # Kubernetes (ordered)
 kubectl rollout restart deployment/indexer -n matchbook

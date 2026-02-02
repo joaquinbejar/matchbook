@@ -30,6 +30,7 @@ anyhow = { workspace = true }
 
 # Logging
 tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
 
 # Solana types
 bs58 = { workspace = true }
@@ -47,3 +48,7 @@ default = []
 [lib]
 name = "matchbook_api"
 path = "src/lib.rs"
+
+[[bin]]
+name = "matchbook-api"
+path = "src/main.rs"

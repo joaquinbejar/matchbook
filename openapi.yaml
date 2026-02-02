@@ -1,0 +1,841 @@
+openapi: 3.0.3
+info:
+  title: Matchbook API
+  description: |
+    REST API for Matchbook, a high-performance Central Limit Order Book on Solana.
+    
+    ## Authentication
+    
+    Most endpoints are public. For higher rate limits, include your API key:
+    ```
+    X-API-Key: your-api-key
+    ```
+    
+    For transaction building endpoints, sign requests with your wallet.
+  version: 1.0.0
+  contact:
+    name: Matchbook Support
+    email: support@matchbook.io
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: https://api.matchbook.io/v1
+    description: Production
+  - url: https://api.devnet.matchbook.io/v1
+    description: Devnet
+
+tags:
+  - name: Markets
+    description: Market information and statistics
+  - name: Order Book
+    description: Order book data
+  - name: Trades
+    description: Trade history
+  - name: Accounts
+    description: User account information
+  - name: Transactions
+    description: Transaction building
+
+paths:
+  /markets:
+    get:
+      tags:
+        - Markets
+      summary: List all markets
+      description: Returns a list of all available trading markets
+      operationId: getMarkets
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  markets:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/MarketSummary'
+
+  /markets/{address}:
+    get:
+      tags:
+        - Markets
+      summary: Get market details
+      description: Returns detailed information about a specific market
+      operationId: getMarket
+      parameters:
+        - name: address
+          in: path
+          required: true
+          description: Market address (base58)
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  market:
+                    $ref: '#/components/schemas/Market'
+                  stats:
+                    $ref: '#/components/schemas/MarketStats'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /markets/{address}/orderbook:
+    get:
+      tags:
+        - Order Book
+      summary: Get order book (L2)
+      description: Returns aggregated order book with price levels
+      operationId: getOrderbook
+      parameters:
+        - name: address
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: depth
+          in: query
+          description: Number of price levels
+          schema:
+            type: integer
+            default: 20
+            maximum: 500
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderBook'
+
+  /markets/{address}/orderbook/l3:
+    get:
+      tags:
+        - Order Book
+      summary: Get order book (L3)
+      description: Returns full order book with individual orders
+      operationId: getOrderbookL3
+      parameters:
+        - name: address
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderBookL3'
+
+  /markets/{address}/trades:
+    get:
+      tags:
+        - Trades
+      summary: Get recent trades
+      description: Returns recent trades for a market
+      operationId: getTrades
+      parameters:
+        - name: address
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+            maximum: 1000
+        - name: before
+          in: query
+          description: Pagination cursor
+          schema:
+            type: string
+        - name: after
+          in: query
+          description: Pagination cursor
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  trades:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Trade'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+
+  /markets/{address}/candles:
+    get:
+      tags:
+        - Trades
+      summary: Get OHLCV candles
+      description: Returns candlestick data for a market
+      operationId: getCandles
+      parameters:
+        - name: address
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: interval
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: ['1m', '5m', '15m', '1h', '4h', '1d']
+        - name: start_time
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: end_time
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+            maximum: 1500
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  candles:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Candle'
+
+  /accounts/{owner}/orders:
+    get:
+      tags:
+        - Accounts
+      summary: Get user orders
+      description: Returns open orders for a user
+      operationId: getUserOrders
+      parameters:
+        - name: owner
+          in: path
+          required: true
+          description: Wallet address
+          schema:
+            type: string
+        - name: market
+          in: query
+          description: Filter by market
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  orders:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Order'
+
+  /accounts/{owner}/trades:
+    get:
+      tags:
+        - Accounts
+      summary: Get user trades
+      description: Returns trade history for a user
+      operationId: getUserTrades
+      parameters:
+        - name: owner
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: market
+          in: query
+          schema:
+            type: string
+        - name: start_time
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: end_time
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  trades:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/UserTrade'
+
+  /accounts/{owner}/balances:
+    get:
+      tags:
+        - Accounts
+      summary: Get user balances
+      description: Returns balances in markets for a user
+      operationId: getUserBalances
+      parameters:
+        - name: owner
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: market
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  balances:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Balance'
+
+  /tx/place-order:
+    post:
+      tags:
+        - Transactions
+      summary: Build place order transaction
+      operationId: buildPlaceOrder
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlaceOrderRequest'
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /tx/cancel-order:
+    post:
+      tags:
+        - Transactions
+      summary: Build cancel order transaction
+      operationId: buildCancelOrder
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CancelOrderRequest'
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionResponse'
+
+  /tx/cancel-all:
+    post:
+      tags:
+        - Transactions
+      summary: Build cancel all orders transaction
+      operationId: buildCancelAll
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CancelAllRequest'
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionResponse'
+
+  /tx/settle:
+    post:
+      tags:
+        - Transactions
+      summary: Build settle funds transaction
+      operationId: buildSettle
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SettleRequest'
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionResponse'
+
+components:
+  schemas:
+    MarketSummary:
+      type: object
+      properties:
+        address:
+          type: string
+          description: Market address
+        base_mint:
+          type: string
+        quote_mint:
+          type: string
+        base_symbol:
+          type: string
+        quote_symbol:
+          type: string
+        base_decimals:
+          type: integer
+        quote_decimals:
+          type: integer
+        tick_size:
+          type: string
+        lot_size:
+          type: string
+        min_order_size:
+          type: string
+        taker_fee_bps:
+          type: integer
+        maker_fee_bps:
+          type: integer
+        state:
+          type: string
+          enum: [active, paused, cancel_only]
+        volume_24h:
+          type: string
+        price_change_24h:
+          type: string
+
+    Market:
+      type: object
+      properties:
+        address:
+          type: string
+        base_mint:
+          type: string
+        quote_mint:
+          type: string
+        bids_address:
+          type: string
+        asks_address:
+          type: string
+        event_queue:
+          type: string
+        base_vault:
+          type: string
+        quote_vault:
+          type: string
+        tick_size:
+          type: string
+        lot_size:
+          type: string
+        min_order_size:
+          type: string
+        taker_fee_bps:
+          type: integer
+        maker_fee_bps:
+          type: integer
+        state:
+          type: string
+
+    MarketStats:
+      type: object
+      properties:
+        best_bid:
+          type: string
+        best_ask:
+          type: string
+        last_price:
+          type: string
+        volume_24h:
+          type: string
+        high_24h:
+          type: string
+        low_24h:
+          type: string
+        price_change_24h:
+          type: string
+        trade_count_24h:
+          type: integer
+
+    OrderBook:
+      type: object
+      properties:
+        market:
+          type: string
+        slot:
+          type: integer
+        timestamp:
+          type: string
+          format: date-time
+        sequence:
+          type: integer
+        bids:
+          type: array
+          items:
+            $ref: '#/components/schemas/PriceLevel'
+        asks:
+          type: array
+          items:
+            $ref: '#/components/schemas/PriceLevel'
+
+    PriceLevel:
+      type: object
+      properties:
+        price:
+          type: string
+        quantity:
+          type: string
+        orders:
+          type: integer
+
+    OrderBookL3:
+      type: object
+      properties:
+        market:
+          type: string
+        slot:
+          type: integer
+        bids:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderBookOrder'
+        asks:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderBookOrder'
+
+    OrderBookOrder:
+      type: object
+      properties:
+        order_id:
+          type: string
+        price:
+          type: string
+        quantity:
+          type: string
+        owner:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+
+    Trade:
+      type: object
+      properties:
+        id:
+          type: string
+        price:
+          type: string
+        quantity:
+          type: string
+        side:
+          type: string
+          enum: [buy, sell]
+        timestamp:
+          type: string
+          format: date-time
+        maker_order_id:
+          type: string
+        taker_order_id:
+          type: string
+
+    UserTrade:
+      type: object
+      properties:
+        id:
+          type: string
+        market:
+          type: string
+        order_id:
+          type: string
+        side:
+          type: string
+          enum: [buy, sell]
+        role:
+          type: string
+          enum: [maker, taker]
+        price:
+          type: string
+        quantity:
+          type: string
+        fee:
+          type: string
+        fee_token:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+
+    Candle:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        open:
+          type: string
+        high:
+          type: string
+        low:
+          type: string
+        close:
+          type: string
+        volume:
+          type: string
+        trade_count:
+          type: integer
+
+    Order:
+      type: object
+      properties:
+        order_id:
+          type: string
+        market:
+          type: string
+        side:
+          type: string
+          enum: [bid, ask]
+        price:
+          type: string
+        original_quantity:
+          type: string
+        remaining_quantity:
+          type: string
+        filled_quantity:
+          type: string
+        order_type:
+          type: string
+          enum: [limit, market, post_only]
+        status:
+          type: string
+          enum: [open, partial_fill, filled, cancelled, expired]
+        client_order_id:
+          type: integer
+        placed_at:
+          type: string
+          format: date-time
+
+    Balance:
+      type: object
+      properties:
+        market:
+          type: string
+        open_orders_account:
+          type: string
+        base:
+          $ref: '#/components/schemas/TokenBalance'
+        quote:
+          $ref: '#/components/schemas/TokenBalance'
+
+    TokenBalance:
+      type: object
+      properties:
+        locked:
+          type: string
+        free:
+          type: string
+        total:
+          type: string
+
+    PlaceOrderRequest:
+      type: object
+      required:
+        - market
+        - owner
+        - side
+        - price
+        - quantity
+        - order_type
+      properties:
+        market:
+          type: string
+        owner:
+          type: string
+        side:
+          type: string
+          enum: [bid, ask]
+        price:
+          type: string
+        quantity:
+          type: string
+        order_type:
+          type: string
+          enum: [limit, market, post_only]
+        time_in_force:
+          type: string
+          enum: [gtc, ioc, fok]
+          default: gtc
+        client_order_id:
+          type: integer
+        self_trade_behavior:
+          type: string
+          enum: [cancel_taker, cancel_maker, abort]
+
+    CancelOrderRequest:
+      type: object
+      required:
+        - market
+        - owner
+        - order_id
+        - side
+      properties:
+        market:
+          type: string
+        owner:
+          type: string
+        order_id:
+          type: string
+        side:
+          type: string
+          enum: [bid, ask]
+
+    CancelAllRequest:
+      type: object
+      required:
+        - market
+        - owner
+      properties:
+        market:
+          type: string
+        owner:
+          type: string
+        side:
+          type: string
+          enum: [bid, ask]
+
+    SettleRequest:
+      type: object
+      required:
+        - market
+        - owner
+      properties:
+        market:
+          type: string
+        owner:
+          type: string
+
+    TransactionResponse:
+      type: object
+      properties:
+        transaction:
+          type: string
+          description: Base64-encoded transaction
+        message:
+          type: string
+          description: Base64-encoded message
+        signers:
+          type: array
+          items:
+            type: string
+        estimated_fee:
+          type: integer
+        accounts_to_create:
+          type: array
+          items:
+            type: string
+        warnings:
+          type: array
+          items:
+            type: string
+
+    Pagination:
+      type: object
+      properties:
+        has_more:
+          type: boolean
+        next_cursor:
+          type: string
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            details:
+              type: object
+
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    RateLimited:
+      description: Rate limit exceeded
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+
+security:
+  - {}
+  - ApiKeyAuth: []

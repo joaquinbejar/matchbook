@@ -1,14 +1,14 @@
 # syntax=docker/dockerfile:1
 
 # =============================================================================
-# Matchbook Crank Service Dockerfile
+# Matchbook Indexer Dockerfile
 # Multi-stage build for efficient caching and minimal runtime image
 # =============================================================================
 
 # -----------------------------------------------------------------------------
 # Stage 1: Chef - Install cargo-chef for dependency caching
 # -----------------------------------------------------------------------------
-FROM rust:1.93-bookworm AS chef
+FROM rust:1.85-bookworm AS chef
 RUN cargo install cargo-chef --locked
 WORKDIR /app
 
@@ -38,7 +38,7 @@ RUN cargo chef cook --release --recipe-path recipe.json
 
 # Copy source code and build application
 COPY . .
-RUN cargo build --release --bin matchbook-crank
+RUN cargo build --release -p matchbook-indexer --bin matchbook-indexer
 
 # -----------------------------------------------------------------------------
 # Stage 4: Runtime - Minimal production image
@@ -49,7 +49,6 @@ FROM debian:bookworm-slim AS runtime
 RUN apt-get update && apt-get install -y \
     ca-certificates \
     libssl3 \
-    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user for security
@@ -57,27 +56,27 @@ RUN groupadd --gid 1000 matchbook \
     && useradd --uid 1000 --gid matchbook --shell /bin/false matchbook
 
 # Copy binary from builder
-COPY --from=builder /app/target/release/matchbook-crank /usr/local/bin/
+COPY --from=builder /app/target/release/matchbook-indexer /usr/local/bin/
 
 # Set ownership
-RUN chown matchbook:matchbook /usr/local/bin/matchbook-crank
+RUN chown matchbook:matchbook /usr/local/bin/matchbook-indexer
 
 # Switch to non-root user
 USER matchbook
 
 # Environment variables with defaults
 ENV RUST_LOG=info
+ENV DATABASE_URL=postgres://matchbook:matchbook@postgres/matchbook
+ENV REDIS_URL=redis://redis:6379
+ENV GEYSER_ENDPOINT=http://localhost:10000
 ENV SOLANA_RPC_URL=https://api.devnet.solana.com
-ENV CRANK_KEYPAIR=""
-ENV MIN_PROFIT_LAMPORTS=1000
-ENV MAX_MATCHES_PER_TX=8
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:9091/health || exit 1
+    CMD curl -f http://localhost:9090/health || exit 1
 
 # Expose metrics port
-EXPOSE 9091
+EXPOSE 9090
 
-# Run the crank service
-ENTRYPOINT ["matchbook-crank"]
+# Run the indexer
+ENTRYPOINT ["matchbook-indexer"]

@@ -8,7 +8,7 @@
 # -----------------------------------------------------------------------------
 # Stage 1: Chef - Install cargo-chef for dependency caching
 # -----------------------------------------------------------------------------
-FROM rust:1.93-bookworm AS chef
+FROM rust:1.85-bookworm AS chef
 RUN cargo install cargo-chef --locked
 WORKDIR /app
 
@@ -38,7 +38,7 @@ RUN cargo chef cook --release --recipe-path recipe.json
 
 # Copy source code and build application
 COPY . .
-RUN cargo build --release --bin matchbook-api
+RUN cargo build --release -p matchbook-api --bin matchbook-api
 
 # -----------------------------------------------------------------------------
 # Stage 4: Runtime - Minimal production image
