@@ -8,7 +8,7 @@
 # -----------------------------------------------------------------------------
 # Stage 1: Chef - Install cargo-chef for dependency caching
 # -----------------------------------------------------------------------------
-FROM rust:1.93-bookworm AS chef
+FROM rust:1.85-bookworm AS chef
 RUN cargo install cargo-chef --locked
 WORKDIR /app
 
