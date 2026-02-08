@@ -223,6 +223,7 @@ See [GitHub Issues](https://github.com/joaquinbejar/matchbook/issues) for detail
 
 - **Author**: Joaquín Béjar García
 - **Email**: jb@taunais.com
+- **Telegram**: [@joaquin_bejar](https://t.me/joaquin_bejar)
 - **Repository**: https://github.com/joaquinbejar/matchbook
 
 ## License
