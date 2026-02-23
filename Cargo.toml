@@ -25,7 +25,7 @@ resolver = "2"
 # Solana / Anchor
 anchor-lang = "0.32"
 anchor-spl = "0.32"
-solana-program = "3.0"
+solana-program = "4.0"
 
 # Async runtime
 tokio = { version = "1.49.0", features = ["full"] }
