@@ -24,7 +24,7 @@ resolver = "2"
 [workspace.dependencies]
 # Solana / Anchor
 anchor-lang = "0.32"
-anchor-spl = "0.32"
+anchor-spl = "1.0"
 solana-program = "3.0"
 
 # Async runtime
