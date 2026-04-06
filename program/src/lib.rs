@@ -219,7 +219,7 @@ pub mod matchbook {
     /// Returns an error if:
     /// - Limit is zero
     pub fn consume_events<'info>(
-        ctx: Context<'_, '_, 'info, 'info, ConsumeEvents<'info>>,
+        ctx: Context<'info, ConsumeEvents<'info>>,
         params: ConsumeEventsParams,
     ) -> Result<u16> {
         instructions::consume_events::handler(ctx, params)

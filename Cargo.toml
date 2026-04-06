@@ -23,9 +23,9 @@ resolver = "2"
 
 [workspace.dependencies]
 # Solana / Anchor
-anchor-lang = "0.32"
-anchor-spl = "0.32"
-solana-program = "3.0"
+anchor-lang = "1.0"
+anchor-spl = "1.0"
+solana-program = "4.0"
 
 # Async runtime
 tokio = { version = "1.49.0", features = ["full"] }
@@ -49,7 +49,7 @@ sqlx = { version = "0.8", features = [
 
 # Web framework
 axum = { version = "0.8", features = ["macros", "ws"] }
-axum-test = "18.7"
+axum-test = "20.0"
 tower = { version = "0.5", features = ["limit", "buffer"] }
 tower-http = { version = "0.6", features = ["cors", "trace"] }
 
@@ -73,18 +73,18 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Solana types
 bs58 = "0.5"
-solana-sdk = "3.0"
+solana-sdk = "4.0"
 borsh = "1.5"
 
 # Redis
 redis = { version = "1.0", features = ["tokio-comp", "connection-manager"] }
-deadpool-redis = "0.22"
+deadpool-redis = "0.23"
 
 # HTTP client
 reqwest = { version = "0.13", features = ["json", "rustls"] }
 
 # WebSocket
-tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"] }
+tokio-tungstenite = { version = "0.29", features = ["rustls-tls-webpki-roots"] }
 futures-util = "0.3"
 
 # Internal crates

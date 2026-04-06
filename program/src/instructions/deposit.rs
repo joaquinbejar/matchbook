@@ -68,7 +68,7 @@ pub fn handler(ctx: Context<crate::Deposit>, params: DepositParams) -> Result<()
     if params.base_amount > 0 {
         token::transfer(
             CpiContext::new(
-                ctx.accounts.token_program.to_account_info(),
+                ctx.accounts.token_program.key(),
                 Transfer {
                     from: ctx.accounts.user_base_account.to_account_info(),
                     to: ctx.accounts.base_vault.to_account_info(),
@@ -91,7 +91,7 @@ pub fn handler(ctx: Context<crate::Deposit>, params: DepositParams) -> Result<()
     if params.quote_amount > 0 {
         token::transfer(
             CpiContext::new(
-                ctx.accounts.token_program.to_account_info(),
+                ctx.accounts.token_program.key(),
                 Transfer {
                     from: ctx.accounts.user_quote_account.to_account_info(),
                     to: ctx.accounts.quote_vault.to_account_info(),

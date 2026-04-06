@@ -62,7 +62,7 @@ impl ConsumeEventsParams {
 /// Returns an error if:
 /// - Limit is zero
 pub fn handler<'info>(
-    ctx: Context<'_, '_, 'info, 'info, crate::ConsumeEvents<'info>>,
+    ctx: Context<'info, crate::ConsumeEvents<'info>>,
     params: ConsumeEventsParams,
 ) -> Result<u16> {
     // Validate parameters

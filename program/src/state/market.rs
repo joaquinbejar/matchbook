@@ -192,13 +192,13 @@ impl Market {
 pub enum MarketStatus {
     /// Normal operation - all actions allowed.
     #[default]
-    Active = 0,
+    Active,
 
     /// Paused - only cancellations and withdrawals allowed.
-    Paused = 1,
+    Paused,
 
     /// Closed - market is permanently closed, only withdrawals allowed.
-    Closed = 2,
+    Closed,
 }
 
 impl MarketStatus {

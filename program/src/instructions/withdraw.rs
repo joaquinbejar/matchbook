@@ -80,7 +80,7 @@ pub fn handler(ctx: Context<crate::Withdraw>, params: WithdrawParams) -> Result<
         // Transfer from vault to user
         token::transfer(
             CpiContext::new_with_signer(
-                ctx.accounts.token_program.to_account_info(),
+                ctx.accounts.token_program.key(),
                 Transfer {
                     from: ctx.accounts.base_vault.to_account_info(),
                     to: ctx.accounts.user_base_account.to_account_info(),
@@ -111,7 +111,7 @@ pub fn handler(ctx: Context<crate::Withdraw>, params: WithdrawParams) -> Result<
         // Transfer from vault to user
         token::transfer(
             CpiContext::new_with_signer(
-                ctx.accounts.token_program.to_account_info(),
+                ctx.accounts.token_program.key(),
                 Transfer {
                     from: ctx.accounts.quote_vault.to_account_info(),
                     to: ctx.accounts.user_quote_account.to_account_info(),

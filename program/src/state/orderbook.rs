@@ -52,15 +52,15 @@ pub const ORDERBOOK_HEADER_SIZE: usize = 128;
 pub enum NodeTag {
     /// Uninitialized node slot.
     #[default]
-    Uninitialized = 0,
+    Uninitialized,
     /// Inner node for tree navigation.
-    InnerNode = 1,
+    InnerNode,
     /// Leaf node containing order data.
-    LeafNode = 2,
+    LeafNode,
     /// Free node in the free list.
-    FreeNode = 3,
+    FreeNode,
     /// Last free node in the free list (next = SENTINEL).
-    LastFreeNode = 4,
+    LastFreeNode,
 }
 
 impl From<u8> for NodeTag {
@@ -87,13 +87,13 @@ impl From<u8> for NodeTag {
 pub enum TimeInForce {
     /// Good-til-cancelled: remains on book until filled or cancelled.
     #[default]
-    GoodTilCancelled = 0,
+    GoodTilCancelled,
     /// Immediate-or-cancel: fills what it can, cancels the rest.
-    ImmediateOrCancel = 1,
+    ImmediateOrCancel,
     /// Fill-or-kill: must fill entirely or cancel entirely.
-    FillOrKill = 2,
+    FillOrKill,
     /// Post-only: must not match immediately (maker only).
-    PostOnly = 3,
+    PostOnly,
 }
 
 impl From<u8> for TimeInForce {

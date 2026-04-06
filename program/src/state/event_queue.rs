@@ -40,9 +40,9 @@ pub const EVENT_QUEUE_HEADER_SIZE: usize = 120;
 pub enum Side {
     /// Buy order.
     #[default]
-    Bid = 0,
+    Bid,
     /// Sell order.
-    Ask = 1,
+    Ask,
 }
 
 impl Side {
@@ -92,11 +92,11 @@ impl From<u8> for Side {
 pub enum OutReason {
     /// Order was cancelled by user.
     #[default]
-    Cancelled = 0,
+    Cancelled,
     /// Order was fully filled.
-    Filled = 1,
+    Filled,
     /// Order expired (time-in-force).
-    Expired = 2,
+    Expired,
 }
 
 impl From<u8> for OutReason {
