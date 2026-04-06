@@ -49,8 +49,13 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-clippy-
 
-      - name: Run Clippy
-        run: cargo clippy --all-targets --all-features --workspace -- -D warnings
+      - name: Run Clippy (workspace)
+        run: cargo clippy --all-targets --all-features --workspace --exclude matchbook-program -- -D warnings
+
+      - name: Run Clippy (program — allow upstream Solana/Anchor macro lints)
+        run: >
+          cargo clippy --all-targets --all-features -p matchbook-program -- -D warnings
+          -A unexpected_cfgs -A clippy::diverging_sub_expression
 
   test:
     name: Test
