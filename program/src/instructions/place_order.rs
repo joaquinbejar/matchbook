@@ -30,13 +30,13 @@ use crate::state::{LeafNode, OrderId, Side, TimeInForce, SENTINEL};
 pub enum OrderType {
     /// Rests on book if not immediately fillable.
     #[default]
-    Limit = 0,
+    Limit,
     /// Fills what it can immediately, cancels the rest.
-    ImmediateOrCancel = 1,
+    ImmediateOrCancel,
     /// Only accepted if it would rest on book (no immediate fill).
-    PostOnly = 2,
+    PostOnly,
     /// Fills completely or cancels entirely.
-    FillOrKill = 3,
+    FillOrKill,
 }
 
 impl From<u8> for OrderType {

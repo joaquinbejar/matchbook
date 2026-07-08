@@ -9,6 +9,7 @@
 //! - [`create_open_orders`] - Creates a user's trading account for a market
 //! - [`deposit`] - Deposits tokens into a user's OpenOrders account
 //! - [`withdraw`] - Withdraws tokens from a user's OpenOrders account
+//! - [`place_order`] - Places a new order on the order book
 //! - [`cancel_order`] - Cancels an order from the order book
 //! - [`cancel_all_orders`] - Cancels all orders for a user
 //! - [`match_orders`] - Executes the matching algorithm (crank)
@@ -21,6 +22,7 @@ pub mod create_market;
 pub mod create_open_orders;
 pub mod deposit;
 pub mod match_orders;
+pub mod place_order;
 pub mod withdraw;
 
 pub use cancel_all_orders::CancelAllOrdersParams;
@@ -33,4 +35,5 @@ pub use create_market::{
 pub use create_open_orders::CreateOpenOrdersParams;
 pub use deposit::DepositParams;
 pub use match_orders::MatchOrdersParams;
+pub use place_order::{OrderType, PlaceOrderParams};
 pub use withdraw::WithdrawParams;

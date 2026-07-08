@@ -26,9 +26,9 @@ pub mod state;
 pub use error::{ErrorCategory, MatchbookError};
 pub use instructions::{
     CancelAllOrdersParams, CancelOrderParams, ConsumeEventsParams, CreateMarketParams,
-    CreateOpenOrdersParams, DepositParams, MatchOrdersParams, WithdrawParams, BASE_VAULT_SEED,
-    EVENT_QUEUE_ACCOUNT_SIZE, MAX_FEE_BPS, MAX_MAKER_FEE_BPS, MAX_MAKER_REBATE_BPS,
-    ORDERBOOK_ACCOUNT_SIZE, QUOTE_VAULT_SEED,
+    CreateOpenOrdersParams, DepositParams, MatchOrdersParams, OrderType, PlaceOrderParams,
+    WithdrawParams, BASE_VAULT_SEED, EVENT_QUEUE_ACCOUNT_SIZE, MAX_FEE_BPS, MAX_MAKER_FEE_BPS,
+    MAX_MAKER_REBATE_BPS, ORDERBOOK_ACCOUNT_SIZE, QUOTE_VAULT_SEED,
 };
 
 pub use state::{
@@ -126,6 +126,30 @@ pub mod matchbook {
     /// - Insufficient free balance
     pub fn withdraw(ctx: Context<Withdraw>, params: WithdrawParams) -> Result<()> {
         instructions::withdraw::handler(ctx, params)
+    }
+
+    /// Places a new order on the order book.
+    ///
+    /// Validates parameters, locks the required funds in the user's
+    /// OpenOrders account, and inserts the order into the appropriate
+    /// book side. Both owner and delegate can place orders.
+    ///
+    /// # Arguments
+    ///
+    /// * `ctx` - The instruction context
+    /// * `params` - Order parameters (side, price, quantity, type, client_order_id)
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - Market is not active
+    /// - Authority is not authorized
+    /// - Price or quantity is invalid
+    /// - Insufficient free balance
+    /// - No free order slot available
+    /// - PostOnly order would cross the spread
+    pub fn place_order(ctx: Context<PlaceOrder>, params: PlaceOrderParams) -> Result<()> {
+        instructions::place_order::handler(ctx, params)
     }
 
     /// Cancels an order from the order book.
@@ -456,6 +480,41 @@ pub struct Withdraw<'info> {
 
     /// SPL Token program.
     pub token_program: Program<'info, Token>,
+}
+
+/// Accounts for the PlaceOrder instruction.
+#[derive(Accounts)]
+#[instruction(params: PlaceOrderParams)]
+pub struct PlaceOrder<'info> {
+    /// Authority placing the order (owner or delegate).
+    pub authority: Signer<'info>,
+
+    /// Market to place the order on. Mutable to advance the order sequence number.
+    #[account(
+        mut,
+        has_one = bids @ MatchbookError::InvalidAccountData,
+        has_one = asks @ MatchbookError::InvalidAccountData
+    )]
+    pub market: Account<'info, Market>,
+
+    /// User's OpenOrders account.
+    #[account(
+        mut,
+        seeds = [OPEN_ORDERS_SEED, market.key().as_ref(), open_orders.owner.as_ref()],
+        bump = open_orders.bump,
+        constraint = open_orders.is_authorized(authority.key) @ MatchbookError::Unauthorized
+    )]
+    pub open_orders: Account<'info, OpenOrders>,
+
+    /// Bids order book account.
+    /// CHECK: Validated via has_one on market.
+    #[account(mut)]
+    pub bids: UncheckedAccount<'info>,
+
+    /// Asks order book account.
+    /// CHECK: Validated via has_one on market.
+    #[account(mut)]
+    pub asks: UncheckedAccount<'info>,
 }
 
 /// Accounts for the CancelOrder instruction.
