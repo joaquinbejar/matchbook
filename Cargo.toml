@@ -38,7 +38,7 @@ tonic = { version = "0.14", features = ["tls-native-roots"] }
 prost = "0.14"
 
 # Database
-sqlx = { version = "0.8", features = [
+sqlx = { version = "0.9", features = [
     "runtime-tokio",
     "tls-rustls",
     "postgres",
