@@ -4,7 +4,7 @@
  * @module types/market
  */
 
-import type { Price, Quantity } from './primitives';
+import type { Price, Quantity } from './primitives.js';
 
 /**
  * Market configuration and state.

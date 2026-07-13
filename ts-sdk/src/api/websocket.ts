@@ -4,8 +4,8 @@
  * @module api/websocket
  */
 
-import type { Price, Quantity, Side, OrderStatus } from '../types';
-import type { BookLevel, BookChange } from '../types';
+import type { Price, Quantity, Side, OrderStatus } from '../types/index.js';
+import type { BookLevel, BookChange } from '../types/index.js';
 
 /**
  * WebSocket channel types.

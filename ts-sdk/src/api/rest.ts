@@ -4,7 +4,7 @@
  * @module api/rest
  */
 
-import type { Market, Order, Trade, OrderBook, Balance, MarketSummary } from '../types';
+import type { Market, Order, Trade, OrderBook, Balance, MarketSummary } from '../types/index.js';
 
 /**
  * Generic API response wrapper.

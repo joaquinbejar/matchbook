@@ -26,4 +26,4 @@ export {
   assertTrade,
   assertOrderBook,
   assertBalance,
-} from './validators';
+} from './validators.js';

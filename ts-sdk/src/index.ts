@@ -31,7 +31,7 @@ export type {
   TimeInForce,
   OrderStatus,
   SelfTradeBehavior,
-} from './types';
+} from './types/index.js';
 
 export {
   SIDES,
@@ -39,7 +39,7 @@ export {
   TIME_IN_FORCE_VALUES,
   ORDER_STATUSES,
   SELF_TRADE_BEHAVIORS,
-} from './types';
+} from './types/index.js';
 
 // Entity types
 export type {
@@ -57,7 +57,7 @@ export type {
   Balance,
   DepositParams,
   WithdrawParams,
-} from './types';
+} from './types/index.js';
 
 // API types
 export type {
@@ -76,7 +76,7 @@ export type {
   PlaceOrderResponse,
   CancelOrderResponse,
   BuildTransactionResponse,
-} from './api';
+} from './api/index.js';
 
 // WebSocket types
 export type {
@@ -97,9 +97,9 @@ export type {
   WsErrorMessage,
   WsServerMessage,
   WsMessage,
-} from './api';
+} from './api/index.js';
 
-export { WS_CHANNELS } from './api';
+export { WS_CHANNELS } from './api/index.js';
 
 // Type guards and validators
 export {
@@ -124,10 +124,10 @@ export {
   assertTrade,
   assertOrderBook,
   assertBalance,
-} from './guards';
+} from './guards/index.js';
 
 // Client
-export type { ClientConfig, ResolvedConfig } from './client';
+export type { ClientConfig, ResolvedConfig } from './client/index.js';
 export {
   DEFAULT_BASE_URL,
   DEFAULT_WS_URL,
@@ -148,6 +148,6 @@ export {
   isRateLimitError,
   MatchbookClient,
   MatchbookWsClient,
-} from './client';
+} from './client/index.js';
 
-export type { BookCallback, TradeCallback, OrderCallback, ErrorCallback } from './client';
+export type { BookCallback, TradeCallback, OrderCallback, ErrorCallback } from './client/index.js';

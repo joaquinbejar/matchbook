@@ -4,7 +4,7 @@
  * @module types/balance
  */
 
-import type { Quantity } from './primitives';
+import type { Quantity } from './primitives.js';
 
 /**
  * User balance for a specific market.

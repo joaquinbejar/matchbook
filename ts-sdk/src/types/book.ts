@@ -4,7 +4,7 @@
  * @module types/book
  */
 
-import type { Price, Quantity } from './primitives';
+import type { Price, Quantity } from './primitives.js';
 
 /**
  * Aggregated price level in the order book.
