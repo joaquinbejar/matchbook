@@ -20,7 +20,7 @@ export type {
   PlaceOrderResponse,
   CancelOrderResponse,
   BuildTransactionResponse,
-} from './rest';
+} from './rest.js';
 
 export type {
   WsChannel,
@@ -40,6 +40,6 @@ export type {
   WsErrorMessage,
   WsServerMessage,
   WsMessage,
-} from './websocket';
+} from './websocket.js';
 
-export { WS_CHANNELS } from './websocket';
+export { WS_CHANNELS } from './websocket.js';

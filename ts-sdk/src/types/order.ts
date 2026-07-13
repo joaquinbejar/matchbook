@@ -4,7 +4,7 @@
  * @module types/order
  */
 
-import type { Price, Quantity, Side, OrderType, OrderStatus, TimeInForce, SelfTradeBehavior } from './primitives';
+import type { Price, Quantity, Side, OrderType, OrderStatus, TimeInForce, SelfTradeBehavior } from './primitives.js';
 
 /**
  * Order details.

@@ -16,7 +16,7 @@ import type {
   BookLevel,
   OrderBook,
   Balance,
-} from '../types';
+} from '../types/index.js';
 
 import {
   SIDES,
@@ -24,7 +24,7 @@ import {
   TIME_IN_FORCE_VALUES,
   ORDER_STATUSES,
   SELF_TRADE_BEHAVIORS,
-} from '../types';
+} from '../types/index.js';
 
 /**
  * Checks if a value is a valid Side.

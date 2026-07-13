@@ -4,7 +4,7 @@
  * @module types/trade
  */
 
-import type { Price, Quantity, Side } from './primitives';
+import type { Price, Quantity, Side } from './primitives.js';
 
 /**
  * Executed trade record.

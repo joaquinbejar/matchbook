@@ -11,11 +11,11 @@ import type {
   WsBookUpdateMessage,
   WsTradeMessage,
   WsOrderUpdateMessage,
-} from '../api';
+} from '../api/index.js';
 
-import type { ResolvedConfig } from './config';
-import { resolveConfig, validateConfig, type ClientConfig } from './config';
-import { WebSocketError } from './errors';
+import type { ResolvedConfig } from './config.js';
+import { resolveConfig, validateConfig, type ClientConfig } from './config.js';
+import { WebSocketError } from './errors.js';
 
 /**
  * Subscription callback types.

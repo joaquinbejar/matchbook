@@ -27,14 +27,14 @@
  * ```
  */
 
-export type { ClientConfig, ResolvedConfig } from './config';
+export type { ClientConfig, ResolvedConfig } from './config.js';
 export {
   DEFAULT_BASE_URL,
   DEFAULT_WS_URL,
   DEFAULT_TIMEOUT,
   resolveConfig,
   validateConfig,
-} from './config';
+} from './config.js';
 
 export {
   ClientError,
@@ -49,9 +49,9 @@ export {
   isHttpError,
   isApiError,
   isRateLimitError,
-} from './errors';
+} from './errors.js';
 
-export { MatchbookClient } from './http';
+export { MatchbookClient } from './http.js';
 
-export type { BookCallback, TradeCallback, OrderCallback, ErrorCallback } from './websocket';
-export { MatchbookWsClient } from './websocket';
+export type { BookCallback, TradeCallback, OrderCallback, ErrorCallback } from './websocket.js';
+export { MatchbookWsClient } from './websocket.js';

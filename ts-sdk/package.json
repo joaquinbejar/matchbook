@@ -8,9 +8,9 @@
   "types": "dist/types/index.d.ts",
   "exports": {
     ".": {
+      "types": "./dist/types/index.d.ts",
       "import": "./dist/esm/index.js",
-      "require": "./dist/cjs/index.js",
-      "types": "./dist/types/index.d.ts"
+      "require": "./dist/cjs/index.js"
     }
   },
   "files": [
@@ -19,7 +19,7 @@
   "scripts": {
     "build": "npm run build:esm && npm run build:cjs && npm run build:types",
     "build:esm": "tsc -p tsconfig.esm.json",
-    "build:cjs": "tsc -p tsconfig.cjs.json",
+    "build:cjs": "tsc -p tsconfig.cjs.json && echo '{\"type\":\"commonjs\"}' > dist/cjs/package.json",
     "build:types": "tsc -p tsconfig.types.json",
     "test": "vitest run",
     "test:watch": "vitest",

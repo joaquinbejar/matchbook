@@ -15,12 +15,12 @@ import type {
   CancelOrderParams,
   DepositParams,
   WithdrawParams,
-} from '../types';
+} from '../types/index.js';
 
-import type { BuildTransactionResponse } from '../api';
+import type { BuildTransactionResponse } from '../api/index.js';
 
-import type { ResolvedConfig } from './config';
-import { resolveConfig, validateConfig, type ClientConfig } from './config';
+import type { ResolvedConfig } from './config.js';
+import { resolveConfig, validateConfig, type ClientConfig } from './config.js';
 import {
   HttpError,
   ApiError,
@@ -28,7 +28,7 @@ import {
   RateLimitError,
   NotFoundError,
   UnauthorizedError,
-} from './errors';
+} from './errors.js';
 
 /**
  * HTTP client for the Matchbook REST API.

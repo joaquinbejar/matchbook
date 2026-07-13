@@ -12,7 +12,7 @@ export type {
   TimeInForce,
   OrderStatus,
   SelfTradeBehavior,
-} from './primitives';
+} from './primitives.js';
 
 export {
   SIDES,
@@ -20,14 +20,14 @@ export {
   TIME_IN_FORCE_VALUES,
   ORDER_STATUSES,
   SELF_TRADE_BEHAVIORS,
-} from './primitives';
+} from './primitives.js';
 
-export type { Market, MarketSummary } from './market';
+export type { Market, MarketSummary } from './market.js';
 
-export type { Order, PlaceOrderParams, CancelOrderParams } from './order';
+export type { Order, PlaceOrderParams, CancelOrderParams } from './order.js';
 
-export type { Trade, TradeFilter } from './trade';
+export type { Trade, TradeFilter } from './trade.js';
 
-export type { BookLevel, OrderBook, BookChange, OrderBookUpdate } from './book';
+export type { BookLevel, OrderBook, BookChange, OrderBookUpdate } from './book.js';
 
-export type { Balance, DepositParams, WithdrawParams } from './balance';
+export type { Balance, DepositParams, WithdrawParams } from './balance.js';
