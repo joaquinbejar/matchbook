@@ -84,7 +84,7 @@ deadpool-redis = "0.23"
 reqwest = { version = "0.13", features = ["json", "rustls"] }
 
 # WebSocket
-tokio-tungstenite = { version = "0.29", features = ["rustls-tls-webpki-roots"] }
+tokio-tungstenite = { version = "0.30", features = ["rustls-tls-webpki-roots"] }
 futures-util = "0.3"
 
 # Internal crates
