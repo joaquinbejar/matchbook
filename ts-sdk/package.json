@@ -46,11 +46,11 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@types/node": "^26.1.1",
-    "eslint": "^10.7.0",
+    "@types/node": "^26.2.0",
+    "eslint": "^10.8.1",
     "typescript": "^6.0.2",
-    "typescript-eslint": "^8.64.0",
-    "vitest": "^4.1.9"
+    "typescript-eslint": "^8.67.0",
+    "vitest": "^4.1.11"
   },
   "engines": {
     "node": ">=18.0.0"
