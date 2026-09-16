@@ -7,7 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-16
+
 ### Added
+- `place_order` instruction wired into the program module (#131)
 - Comprehensive developer documentation
 - OpenAPI 3.0 specification for REST API
 - Architecture documentation with diagrams
@@ -25,6 +28,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Updated README with project overview and quick start guide
+- TypeScript SDK migrated off `node10` module resolution for TypeScript 7 readiness (#138)
+- CI uses the stable Rust toolchain; Docker images build on Rust 1.88 (#116)
+- Dependency updates across the Rust workspace and the TypeScript SDK (Dependabot)
+
+### Fixed
+- Clippy lints for Solana macros (#116)
+- `security-events: write` permission for SARIF upload in the security workflow
 
 ## [0.1.0] - 2026-01-30
 
