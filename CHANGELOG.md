@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Dependencies updated to latest stable versions (anchor-lang/anchor-spl 1.2, solana-program/solana-sdk 5.0, tokio 1.53, borsh 1.8, redis 1.7, rust_decimal 1.43; ts-sdk vitest 5.0.1)
+
 ## [0.2.0] - 2026-09-16
 
 ### Added

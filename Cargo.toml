@@ -23,15 +23,15 @@ resolver = "2"
 
 [workspace.dependencies]
 # Solana / Anchor
-anchor-lang = "1.0"
-anchor-spl = "1.0"
-solana-program = "4.0"
+anchor-lang = "1.2"
+anchor-spl = "1.2"
+solana-program = "5.0"
 
 # Async runtime
-tokio = { version = "1.49.0", features = ["full"] }
-tokio-stream = "0.1.18"
-tokio-test = "0.4.5"
-futures = "0.3.31"
+tokio = { version = "1.53", features = ["full"] }
+tokio-stream = "0.1"
+tokio-test = "0.4"
+futures = "0.3"
 
 # gRPC and Geyser
 tonic = { version = "0.14", features = ["tls-native-roots"] }
@@ -49,7 +49,7 @@ sqlx = { version = "0.9", features = [
 
 # Web framework
 axum = { version = "0.8", features = ["macros", "ws"] }
-axum-test = "21.0"
+axum-test = "21.1"
 tower = { version = "0.5", features = ["limit", "buffer"] }
 tower-http = { version = "0.7", features = ["cors", "trace"] }
 
@@ -61,7 +61,7 @@ serde_json = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
 
 # Decimal for precise numeric handling
-rust_decimal = { version = "1.40", features = ["db-postgres"] }
+rust_decimal = { version = "1.43", features = ["db-postgres"] }
 
 # Error handling
 thiserror = "2.0"
@@ -73,11 +73,11 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Solana types
 bs58 = "0.5"
-solana-sdk = "4.0"
-borsh = "1.5"
+solana-sdk = "5.0"
+borsh = "1.8"
 
 # Redis
-redis = { version = "1.0", features = ["tokio-comp", "connection-manager"] }
+redis = { version = "1.7", features = ["tokio-comp", "connection-manager"] }
 deadpool-redis = "0.23"
 
 # HTTP client
