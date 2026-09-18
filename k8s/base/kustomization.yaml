@@ -21,7 +21,7 @@ resources:
 labels:
   - pairs:
       app.kubernetes.io/managed-by: kustomize
-      app.kubernetes.io/version: "0.2.0"
+      app.kubernetes.io/version: "0.2.1"
 
 images:
   - name: ghcr.io/joaquinbejar/matchbook-indexer
