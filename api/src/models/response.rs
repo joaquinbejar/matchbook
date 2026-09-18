@@ -224,7 +224,7 @@ mod tests {
     fn test_health_response() {
         let health = HealthResponse {
             status: "ok".to_string(),
-            version: "0.2.0".to_string(),
+            version: "0.2.1".to_string(),
         };
 
         assert_eq!(health.status, "ok");
