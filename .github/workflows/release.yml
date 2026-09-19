@@ -109,9 +109,7 @@ jobs:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
         run: |
           cd sdk
-          cargo publish --dry-run
-          # Uncomment when ready for actual publishing:
-          # cargo publish
+          cargo publish
 
   # Publish TypeScript SDK to npm
   publish-npm:

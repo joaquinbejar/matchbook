@@ -78,7 +78,7 @@ fix:
 	cargo fix --allow-staged --allow-dirty
 
 .PHONY: pre-push
-pre-push: fix fmt lint-fix test readme doc
+pre-push: fix fmt lint-fix test doc
 
 .PHONY: doc
 doc:
