@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Makefile coverage targets require cargo-tarpaulin >= 0.37.5 (needed for Rust 1.99 coverage data) and use `--timeout 600` instead of `--timeout 0`
+
 ## [0.2.1] - 2026-09-18
 
 ### Changed
