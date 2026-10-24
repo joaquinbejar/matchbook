@@ -1,0 +1,16 @@
+[package]
+name = "matchbook-playground"
+description = "The MatchBook engine compiled to WebAssembly for the in-browser playground"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+matchbook-engine = { workspace = true }
+bytemuck = { workspace = true }

@@ -1638,6 +1638,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "matchbook-playground"
+version = "1.0.0-beta.1"
+dependencies = [
+ "bytemuck",
+ "matchbook-engine",
+]
+
+[[package]]
 name = "matchbook-program"
 version = "1.0.0-beta.1"
 dependencies = [

@@ -1,0 +1,518 @@
+<title>MatchBook Playground</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: a trading desk on a slate ledger. Book on the left, ticket in the middle,
+   trader and tape on the right; story and evidence below. */
+:root {
+  --bg: #eef1f4;
+  --panel: #ffffff;
+  --ink: #17202b;
+  --muted: #5d6b7a;
+  --line: #d5dce4;
+  --accent: #2847d6;
+  --accent-soft: #e3e8fc;
+  --bid: #0f8a6c;
+  --bid-soft: #dcf2ec;
+  --ask: #c8423b;
+  --ask-soft: #f8e1df;
+  --warn: #a8670a;
+  --warn-soft: #f8ecd8;
+  --display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", sans-serif;
+  --body: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f141a; --panel: #171e27; --ink: #e6ebf1; --muted: #93a1b0; --line: #2a3542;
+    --accent: #8ea2ff; --accent-soft: #232c4d;
+    --bid: #3fc9a3; --bid-soft: #12302a; --ask: #ff7a70; --ask-soft: #3a1d1c;
+    --warn: #f0b04d; --warn-soft: #33270f;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f141a; --panel: #171e27; --ink: #e6ebf1; --muted: #93a1b0; --line: #2a3542;
+  --accent: #8ea2ff; --accent-soft: #232c4d;
+  --bid: #3fc9a3; --bid-soft: #12302a; --ask: #ff7a70; --ask-soft: #3a1d1c;
+  --warn: #f0b04d; --warn-soft: #33270f;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body {
+  background: var(--bg); color: var(--ink); font: 15px/1.5 var(--body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 24px 48px;
+}
+.wrap { max-width: 1240px; margin: 0 auto; display: grid; gap: 28px; }
+h1, h2, h3 { font-family: var(--display); text-wrap: balance; margin: 0; }
+h1 { font-size: clamp(30px, 5vw, 46px); font-weight: 800; letter-spacing: -0.02em; line-height: 1.05; }
+h2 { font-size: 24px; font-weight: 800; letter-spacing: -0.01em; }
+h3 { font-size: 13px; font-family: var(--body); font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+p { margin: 0; }
+.num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+header { display: grid; gap: 12px; }
+.lede { max-width: 68ch; color: var(--muted); font-size: 17px; }
+.lede b { color: var(--ink); font-weight: 600; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { font-size: 12.5px; padding: 4px 10px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-weight: 500; }
+.chip.ok { background: var(--bid-soft); color: var(--bid); }
+
+.desk { display: grid; grid-template-columns: minmax(250px, 300px) minmax(280px, 1fr) minmax(280px, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 980px) { .desk { grid-template-columns: 1fr 1fr; } .tape-col { grid-column: 1 / -1; } }
+@media (max-width: 640px) { .desk { grid-template-columns: 1fr; } }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; display: grid; gap: 12px; min-width: 0; }
+.col { display: grid; gap: 16px; min-width: 0; }
+
+/* Book */
+.book { display: grid; gap: 1px; font-family: var(--mono); font-size: 13px; font-variant-numeric: tabular-nums; }
+.lvl { position: relative; display: grid; grid-template-columns: 1fr 1fr 28px; padding: 3px 8px; border-radius: 3px; overflow: hidden; }
+.lvl .bar { position: absolute; inset: 0 0 0 auto; z-index: 0; transition: width .25s ease; }
+.lvl span { position: relative; z-index: 1; }
+.lvl .sz, .lvl .cnt { text-align: right; }
+.lvl .cnt { color: var(--muted); }
+.lvl.ask .px { color: var(--ask); } .lvl.ask .bar { background: var(--ask-soft); }
+.lvl.bid .px { color: var(--bid); } .lvl.bid .bar { background: var(--bid-soft); }
+.lvl.flash { animation: flash .6s ease; }
+@keyframes flash { from { background: var(--accent-soft); } to { background: transparent; } }
+.book-head { display: grid; grid-template-columns: 1fr 1fr 28px; padding: 0 8px; font-size: 11.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.book-head span:not(:first-child) { text-align: right; }
+.mid { display: flex; justify-content: space-between; align-items: baseline; padding: 8px; border-block: 1px solid var(--line); margin-block: 4px; }
+.mid .last { font-size: 20px; font-weight: 600; }
+.mid small { color: var(--muted); font-size: 12px; }
+.empty-side { padding: 6px 8px; color: var(--muted); font-size: 12.5px; font-family: var(--body); }
+
+/* Forms */
+.seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.seg button { border: 0; background: transparent; padding: 8px 6px; font: 500 13.5px var(--body); color: var(--muted); cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
+.seg.side button[data-v="0"][aria-pressed="true"] { background: var(--bid-soft); color: var(--bid); }
+.seg.side button[data-v="1"][aria-pressed="true"] { background: var(--ask-soft); color: var(--ask); }
+label { display: grid; gap: 4px; font-size: 12.5px; color: var(--muted); font-weight: 500; }
+.row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+input, select { font: 14px var(--mono); padding: 8px 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--bg); color: var(--ink); width: 100%; min-width: 0; }
+input:focus-visible, select:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.hint { font-size: 12.5px; color: var(--muted); }
+.btn { border: 0; border-radius: 8px; padding: 10px 14px; font: 600 14px var(--body); cursor: pointer; background: var(--accent); color: #fff; }
+:root[data-theme="dark"] .btn { color: #0f141a; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .btn { color: #0f141a; } }
+.btn.buy { background: var(--bid); } .btn.sell { background: var(--ask); }
+.btn.ghost { background: transparent; color: var(--accent); border: 1px solid var(--line); }
+.msg { font-size: 13px; padding: 8px 10px; border-radius: 7px; background: var(--bg); color: var(--muted); min-height: 36px; }
+.msg.err { background: var(--ask-soft); color: var(--ask); }
+.msg.good { background: var(--bid-soft); color: var(--bid); }
+
+.scen { display: grid; gap: 8px; }
+.scen button { text-align: left; border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 10px 12px; cursor: pointer; color: var(--ink); font: 14px var(--body); display: grid; gap: 2px; }
+.scen button:hover { border-color: var(--accent); }
+.scen button b { font-weight: 600; }
+.scen button span { color: var(--muted); font-size: 12.5px; }
+
+/* Trader */
+.bal { display: grid; grid-template-columns: auto 1fr 1fr; gap: 4px 12px; font-size: 13px; }
+.bal .h { color: var(--muted); font-size: 11.5px; text-transform: uppercase; letter-spacing: .06em; }
+.bal .v { text-align: right; }
+.orders { display: grid; gap: 6px; max-height: 260px; overflow: auto; }
+.ord { display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: center; font-size: 13px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 7px; }
+.tag { font: 600 11px var(--body); padding: 2px 6px; border-radius: 4px; text-transform: uppercase; letter-spacing: .04em; }
+.tag.bid { background: var(--bid-soft); color: var(--bid); }
+.tag.ask { background: var(--ask-soft); color: var(--ask); }
+.tag.stop { background: var(--warn-soft); color: var(--warn); }
+.ord small { color: var(--muted); display: block; font-size: 11.5px; }
+.x { border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: 18px; line-height: 1; padding: 2px 6px; border-radius: 4px; }
+.x:hover { color: var(--ask); background: var(--ask-soft); }
+
+/* Tape */
+.tape { display: grid; gap: 4px; max-height: 520px; overflow: auto; font-size: 13px; }
+.ev { display: grid; grid-template-columns: 74px 1fr; gap: 8px; padding: 5px 0; border-bottom: 1px dashed var(--line); }
+.ev .k { font: 600 11px var(--body); text-transform: uppercase; letter-spacing: .05em; padding-top: 2px; }
+.ev.fill .k { color: var(--accent); } .ev.rev .k { color: var(--bid); } .ev.trig .k, .ev.oco .k { color: var(--warn); }
+.ev.out .k { color: var(--muted); } .ev.note .k { color: var(--ink); }
+.ev.note { color: var(--muted); }
+
+.stats { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 12.5px; color: var(--muted); }
+.stats b { color: var(--ink); font-family: var(--mono); font-weight: 600; }
+
+/* Evidence */
+.evidence { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 900px) { .evidence { grid-template-columns: 1fr; } }
+.tbl { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+th, td { padding: 7px 10px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
+th { font-size: 12px; color: var(--muted); font-weight: 600; }
+td.n, th.n { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+td.win { color: var(--accent); font-weight: 600; }
+td.yes { color: var(--bid); font-weight: 600; }
+td.no { color: var(--muted); }
+.foot { font-size: 12.5px; color: var(--muted); max-width: 90ch; }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>MatchBook Playground</h1>
+    <p class="lede">A SOL/USDC market running the <b>real MatchBook matching engine</b>, compiled to WebAssembly from the same Rust code the Solana program runs. Every order below goes through the code that runs on chain: no crank, reverse orders that re-post themselves, and stops that fire on the trade that reaches them.</p>
+    <div class="chips">
+      <span class="chip">Crankless: makers settle inside the taker's transaction</span>
+      <span class="chip">953 CU to rest an order</span>
+      <span class="chip">Stops and OCO brackets without keepers</span>
+      <span class="chip ok" id="inv">Invariants checked after every action</span>
+    </div>
+  </header>
+
+  <div class="desk">
+    <section class="panel" aria-label="Order book">
+      <h3>Order book · SOL/USDC</h3>
+      <div class="book-head"><span>Price</span><span>Size (SOL)</span><span>#</span></div>
+      <div class="book" id="asks"></div>
+      <div class="mid"><span class="last num" id="last">-</span><small id="spread"></small></div>
+      <div class="book" id="bids"></div>
+      <div class="stats" id="stats"></div>
+    </section>
+
+    <div class="col">
+      <section class="panel" aria-label="Order ticket">
+        <h3>Order ticket</h3>
+        <div class="seg" id="who" role="group" aria-label="Trader"></div>
+        <div class="seg side" id="side" role="group" aria-label="Side">
+          <button data-v="0" aria-pressed="true">Buy</button>
+          <button data-v="1" aria-pressed="false">Sell</button>
+        </div>
+        <label for="otype">Order type
+          <select id="otype">
+            <option value="0">Limit</option>
+            <option value="1">Post-only</option>
+            <option value="2">Post-only, slide behind the book</option>
+            <option value="3">Immediate or cancel</option>
+            <option value="4">Fill or kill</option>
+            <option value="stop">Stop (waits for a trade at the trigger)</option>
+          </select>
+        </label>
+        <div class="row">
+          <label for="price">Limit price (USDC)<input id="price" inputmode="decimal" value="150.100"></label>
+          <label for="size">Size (SOL)<input id="size" inputmode="decimal" value="0.010"></label>
+        </div>
+        <div class="row" id="extra-limit">
+          <label for="rev">Reverse spread (%)<input id="rev" inputmode="decimal" value="0" title="0 for an ordinary order"></label>
+          <label for="ttl">Expires in (s)<input id="ttl" inputmode="numeric" value="0" title="0 for never"></label>
+        </div>
+        <div class="row" id="extra-stop" hidden>
+          <label for="trigger">Trigger price (USDC)<input id="trigger" inputmode="decimal" value="149.000"></label>
+          <label for="dir">Fires when a trade is
+            <select id="dir"><option value="1">at or below</option><option value="0">at or above</option></select>
+          </label>
+        </div>
+        <button class="btn buy" id="submit">Buy SOL</button>
+        <p class="msg" id="msg" role="status">Pick a trader and place an order, or run a scenario.</p>
+      </section>
+
+      <section class="panel" aria-label="Scenarios">
+        <h3>Scenarios</h3>
+        <div class="scen">
+          <button id="s-sweep"><b>Carla sweeps the asks</b><span>Buys 0.030 SOL up to 150.400. Ana's reverse asks fill and re-post as bids 0.2% lower.</span></button>
+          <button id="s-crash"><b>A wallet dumps 0.060 SOL</b><span>A seatless swap down to 148.000 trades through 149.000, firing Bruno's stop-loss and cancelling his take-profit.</span></button>
+          <button id="s-expire"><b>Quotes that expire</b><span>Ana posts 30-second quotes at 149.95 and 150.05, then the clock jumps 2 minutes.</span></button>
+          <button id="s-reset" class="reset"><b>Reset the market</b><span>Back to Ana's grid and Bruno's bracket.</span></button>
+        </div>
+      </section>
+    </div>
+
+    <div class="col tape-col">
+      <section class="panel" aria-label="Trader">
+        <h3 id="trader-title">Trader</h3>
+        <div class="bal num" id="bal"></div>
+        <div class="orders" id="orders"></div>
+      </section>
+      <section class="panel" aria-label="Event tape">
+        <h3>Event tape</h3>
+        <div class="tape" id="tape"></div>
+      </section>
+    </div>
+  </div>
+
+  <section class="panel" aria-label="How MatchBook compares">
+    <h2>How it compares</h2>
+    <div class="evidence">
+      <div class="tbl">
+        <table>
+          <thead><tr><th>Compute units per transaction</th><th class="n">MatchBook</th><th class="n">Manifest</th><th class="n">Phoenix</th><th class="n">OpenBook v2</th></tr></thead>
+          <tbody>
+            <tr><td>Open a trading account</td><td class="n win">507</td><td class="n">710</td><td class="n">16,241</td><td class="n">16,914</td></tr>
+            <tr><td>Deposit</td><td class="n win">1,860</td><td class="n">3,231</td><td class="n">19,237</td><td class="n">14,440</td></tr>
+            <tr><td>Limit order, 2,000-order book</td><td class="n win">1,288</td><td class="n">1,881</td><td class="n">18,332</td><td class="n">17,256</td></tr>
+            <tr><td>Cancel</td><td class="n win">614</td><td class="n">814</td><td class="n">9,288</td><td class="n">5,550</td></tr>
+            <tr><td>IOC, 1 fill</td><td class="n win">1,660</td><td class="n">1,850</td><td class="n">17,041</td><td class="n">18,419</td></tr>
+            <tr><td>IOC, sweeps 20 orders</td><td class="n win">20,541</td><td class="n">21,281</td><td class="n">46,651</td><td class="n">86,744</td></tr>
+            <tr><td>Wallet swap, 1 fill</td><td class="n win">4,487</td><td class="n">9,031</td><td class="n">22,181</td><td class="n">30,610</td></tr>
+            <tr><td>Requote: cancel 10, place 10</td><td class="n win">11,802</td><td class="n">12,643</td><td class="n">59,359</td><td class="n">107,768</td></tr>
+            <tr><td>Withdraw</td><td class="n win">1,738</td><td class="n">3,455</td><td class="n">14,770</td><td class="n">19,118</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="tbl">
+        <table>
+          <thead><tr><th>Feature</th><th>MatchBook</th><th>Manifest</th><th>Phoenix</th><th>OpenBook v2</th></tr></thead>
+          <tbody>
+            <tr><td>No crank</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="no">Event heap</td></tr>
+            <tr><td>Open seats</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="no">Approved</td><td class="yes">Yes</td></tr>
+            <tr><td>Market rent up front</td><td class="yes">Header only</td><td class="yes">Header only</td><td class="no">Full book</td><td class="no">Full book</td></tr>
+            <tr><td>Reverse orders</td><td class="yes">Guaranteed flip</td><td class="yes">Yes</td><td class="no">No</td><td class="no">No</td></tr>
+            <tr><td>On-chain stops, OCO</td><td class="yes">Yes</td><td class="no">No</td><td class="no">No</td><td class="no">No</td></tr>
+            <tr><td>Scoped session keys</td><td class="yes">Yes</td><td class="no">No</td><td class="no">No</td><td class="no">One delegate</td></tr>
+            <tr><td>Referral fee share</td><td class="yes">Yes</td><td class="no">No</td><td class="no">No</td><td class="yes">Yes</td></tr>
+            <tr><td>Token-2022 mints</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="no">No</td><td class="no">No</td></tr>
+            <tr><td>Oracle-pegged orders</td><td class="no">No</td><td class="no">No</td><td class="no">No</td><td class="yes">Yes</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <p class="foot">Compute units measured for the same scenarios in one LiteSVM runtime, each program built from source at a pinned commit; MatchBook's numbers include its 10 bps taker fee and 2 bps maker rebate. OpenBook v2 also needs a crank to pay makers: 28,552 CU per 8 fills. The full table and method are in the repository's <span class="num">docs/benchmarks.md</span>.</p>
+  </section>
+</div>
+
+<script>
+const WASM_B64 = "__WASM_BASE64__";
+
+// Market units: 1 base lot = 0.001 SOL, 1 quote lot = 0.000001 USDC, so a price of
+// 150,100 quote lots per base lot is 150.100 USDC per SOL.
+const BASE_LOT = 1e6, QUOTE_LOT = 1, PX = 1000, LOTS_PER_SOL = 1000;
+const TRADERS = { 1: 'Ana', 2: 'Bruno', 3: 'Carla' };
+const ROLE = { 1: 'market maker', 2: 'swing trader', 3: 'taker' };
+const ERR = ['InvalidAccountData','AlreadyInitialized','InvalidMarketParams','OutOfSpace','TraderNotFound','SeatAlreadyClaimed','SeatNotEmpty','InvalidPrice','InvalidQuantity','InsufficientFunds','PostOnlyWouldCross','FillOrKillNotFilled','SelfTrade','OrderNotFound','Overflow','MarketNotActive','BudgetRequiresIoc','AlreadyExpired','Corrupted','DelegateNotFound','TooManyDelegates','NotPermitted','DelegateExpired','InvalidDelegate','InvalidReverseSpread','InvalidStop','StopWouldTrigger','Permissioned'];
+const ERR_TEXT = {
+  PostOnlyWouldCross: 'A post-only order would cross the book, so it was rejected.',
+  FillOrKillNotFilled: 'Not enough liquidity to fill the whole order, so nothing traded.',
+  InsufficientFunds: 'The trader does not have enough free balance for this order.',
+  InvalidPrice: 'Enter a price above zero.',
+  InvalidQuantity: 'Enter a size of at least 0.001 SOL.',
+  StopWouldTrigger: 'The last trade already reached that trigger. Pick a trigger the market has not reached yet.',
+  InvalidReverseSpread: 'Reverse orders must rest on the book: use Limit or Post-only with a spread below 100%.',
+  OrderNotFound: 'That order is no longer on the book.',
+  BudgetRequiresIoc: 'A quote budget needs an immediate-or-cancel order.',
+};
+const REASON = ['filled','cancelled','expired','self-trade cancelled','triggered','OCO cancelled'];
+
+let x, lastFill = [0, 0, 0, 0, 0], now = 1_700_000_000, current = 1, side = 0, prevBook = new Map();
+
+const $ = (id) => document.getElementById(id);
+const out = (n) => Array.from(new Float64Array(x.memory.buffer, x.mb_out_ptr(), n));
+const px = (p) => (p / PX).toFixed(3);
+const sol = (lots) => (lots / LOTS_PER_SOL).toFixed(3);
+const usdc = (atoms) => (atoms / 1e6).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const name = (id) => id < 0 ? 'a wallet' : (TRADERS[id] || `#${id}`);
+const short = (id) => '#' + (Math.floor(id / 2 ** 24));
+const clock = () => new Date(now * 1000).toISOString().slice(11, 19);
+
+function errText(r) {
+  if (r >= -1) return 'The engine rejected this request.';
+  const n = ERR[-r - 2] || 'Error';
+  return ERR_TEXT[n] || n.replace(/([A-Z])/g, ' $1').trim() + '.';
+}
+
+function tape(kind, cls, text) {
+  const el = document.createElement('div');
+  el.className = 'ev ' + cls;
+  el.innerHTML = `<span class="k">${kind}</span><span>${text} <span class="num" style="color:var(--muted);font-size:11.5px">${clock()}</span></span>`;
+  $('tape').prepend(el);
+}
+
+function drainEvents() {
+  const n = x.mb_events();
+  const rows = out(n * 7);
+  for (let i = 0; i < n; i++) {
+    const [k, who, id, price, lots, f5, f6] = rows.slice(i * 7, i * 7 + 7);
+    if (k === 1) tape('Fill', 'fill', `${name(who)}'s order ${short(id)} traded <b class="num">${sol(lots)}</b> SOL at <b class="num">${px(price)}</b> with ${name(f6)}${f5 ? `, ${sol(f5)} left` : ''}`);
+    else if (k === 3) tape('Reversed', 'rev', `${name(who)} re-posted <b class="num">${sol(lots)}</b> SOL as a ${f5 ? 'sell' : 'buy'} at <b class="num">${px(price)}</b>, order ${short(id)}`);
+    else if (k === 2) {
+      const why = REASON[f5] || 'removed';
+      if (f5 === 4) tape('Triggered', 'trig', `${name(who)}'s stop ${short(id)} fired: ${f6 ? 'sell' : 'buy'} ${sol(lots)} SOL, limit ${px(price)}`);
+      else if (f5 === 5) tape('OCO', 'oco', `${name(who)}'s stop ${short(id)} was cancelled because its bracket partner fired`);
+      else if (f5 > 1) tape('Out', 'out', `${name(who)}'s ${f6 ? 'sell' : 'buy'} ${short(id)} at ${px(price)} ${why}`);
+    }
+  }
+}
+
+function levelsHtml(levels, cls, maxLots) {
+  if (!levels.length) return `<div class="empty-side">No ${cls === 'ask' ? 'sellers' : 'buyers'}</div>`;
+  return levels.map(([p, l, c]) => {
+    const key = cls + p, changed = prevBook.has(key) && prevBook.get(key) !== l || !prevBook.has(key);
+    return `<div class="lvl ${cls}${changed ? ' flash' : ''}"><span class="bar" style="width:${Math.max(4, l / maxLots * 100)}%"></span><span class="px">${px(p)}</span><span class="sz">${sol(l)}</span><span class="cnt">${c}</span></div>`;
+  }).join('');
+}
+
+function render() {
+  const n = x.mb_book(8);
+  const v = out(n);
+  const nb = v[0], na = v[1];
+  const bids = [], asks = [];
+  for (let i = 0; i < nb; i++) bids.push(v.slice(2 + i * 3, 5 + i * 3));
+  for (let i = 0; i < na; i++) asks.push(v.slice(2 + (nb + i) * 3, 5 + (nb + i) * 3));
+  const maxLots = Math.max(1, ...bids.map((b) => b[1]), ...asks.map((a) => a[1]));
+  $('asks').innerHTML = levelsHtml(asks.slice().reverse(), 'ask', maxLots);
+  $('bids').innerHTML = levelsHtml(bids, 'bid', maxLots);
+  const next = new Map();
+  bids.forEach(([p, l]) => next.set('bid' + p, l));
+  asks.forEach(([p, l]) => next.set('ask' + p, l));
+  prevBook = next;
+
+  const ok = x.mb_stats();
+  const [last, orders, stops, traders, fees, lots, quote, nodes, bytes] = out(9);
+  $('last').textContent = last ? px(last) : '-';
+  $('spread').textContent = bids.length && asks.length ? `spread ${px(asks[0][0] - bids[0][0])}` : '';
+  $('stats').innerHTML = `<span>orders <b>${orders}</b></span><span>stops <b>${stops}</b></span><span>volume <b>${sol(lots)}</b> SOL</span><span>fees <b>${usdc(fees)}</b></span><span>account <b>${(bytes / 1024).toFixed(1)}</b> KiB</span>`;
+  $('inv').textContent = ok === 1 ? 'Invariants checked after every action: all hold' : 'Invariant check failed';
+  $('inv').className = 'chip ' + (ok === 1 ? 'ok' : '');
+
+  $('trader-title').textContent = `${TRADERS[current]} · ${ROLE[current]}`;
+  x.mb_balances(current);
+  const [bf, qf, bl, ql] = out(4);
+  $('bal').innerHTML = `<span class="h"></span><span class="h v">Free</span><span class="h v">In orders</span>
+    <span>SOL</span><span class="v">${(bf / 1e9).toFixed(3)}</span><span class="v">${(bl / 1e9).toFixed(3)}</span>
+    <span>USDC</span><span class="v">${usdc(qf)}</span><span class="v">${usdc(ql)}</span>`;
+  const rows = x.mb_orders(current);
+  const o = out(rows * 8);
+  const items = [];
+  for (let i = 0; i < rows; i++) {
+    const [k, id, s, p, l, extra, exp, oco] = o.slice(i * 8, i * 8 + 8);
+    if (k === 1) {
+      const notes = [extra ? `reverse ${(extra / 1e4).toFixed(2)}%` : '', exp ? `expires ${new Date(exp * 1000).toISOString().slice(11, 19)}` : ''].filter(Boolean).join(' · ');
+      items.push(`<div class="ord"><span class="tag ${s ? 'ask' : 'bid'}">${s ? 'Sell' : 'Buy'}</span><span class="num">${sol(l)} @ ${px(p)}<small>${short(id)}${notes ? ' · ' + notes : ''}</small></span><button class="x" data-id="${id}" aria-label="Cancel order">×</button></div>`);
+    } else {
+      items.push(`<div class="ord"><span class="tag stop">Stop</span><span class="num">${s ? 'sell' : 'buy'} ${sol(l)} @ ${px(p)}<small>when a trade is ${exp ? 'at or below' : 'at or above'} ${px(extra)}${oco ? ' · OCO' : ''}</small></span><button class="x" data-id="${id}" aria-label="Cancel stop">×</button></div>`);
+    }
+  }
+  $('orders').innerHTML = items.join('') || '<p class="hint">No open orders or stops.</p>';
+}
+
+function say(text, cls = '') { const m = $('msg'); m.textContent = text; m.className = 'msg ' + cls; }
+
+function place(t, s, price, sizeSol, type = 0, revPct = 0, ttl = 0) {
+  const r = x.mb_place(t, s, Math.round(price * PX), Math.round(sizeSol * LOTS_PER_SOL), type, Math.round(revPct * 1e4), ttl ? now + ttl : 0, 0);
+  lastFill = r < 0 ? [0, 0, 0, 0, 0] : out(5); // read before the events overwrite the buffer
+  drainEvents();
+  return r;
+}
+function stop(t, dir, trigger, s, price, sizeSol, type = 3, oco = 0) {
+  return x.mb_stop(t, dir, Math.round(trigger * PX), s, Math.round(price * PX), Math.round(sizeSol * LOTS_PER_SOL), type, oco);
+}
+
+function seed() {
+  x.mb_init(BASE_LOT, QUOTE_LOT, 10, 2, 2000);
+  now = 1_700_000_000; x.mb_set_time(now);
+  for (const t of [1, 2, 3]) x.mb_deposit(t, 50e9, 20_000e6);
+  $('tape').innerHTML = '';
+  // Ana's grid: reverse orders 0.2% wide, so every fill re-posts on the other side.
+  for (let i = 0; i < 5; i++) {
+    place(1, 1, 150.1 + i * 0.1, 0.01, 1, 0.2);
+    place(1, 0, 149.9 - i * 0.1, 0.01, 1, 0.2);
+  }
+  place(1, 0, 148.5, 0.05, 1);
+  // Bruno is long and brackets the position: stop-loss at 149, take-profit at 151.
+  const sl = stop(2, 1, 149.0, 1, 148.0, 0.02, 3);
+  stop(2, 0, 151.0, 1, 150.9, 0.02, 3, sl);
+  // A first trade sets the last price.
+  x.mb_swap(0, 1, 1e12, Math.round(150.1 * PX));
+  x.mb_events();
+  tape('Ready', 'note', 'Ana quotes a reverse-order grid. Bruno holds a stop-loss at 149.000 and a take-profit at 151.000, paired one-cancels-other.');
+  render();
+}
+
+function selectTrader(t) {
+  current = t;
+  document.querySelectorAll('#who button').forEach((b) => b.setAttribute('aria-pressed', String(+b.dataset.v === t)));
+  render();
+}
+
+function syncTicket() {
+  const isStop = $('otype').value === 'stop';
+  $('extra-stop').hidden = !isStop;
+  $('extra-limit').hidden = isStop;
+  const b = $('submit');
+  b.className = 'btn ' + (side ? 'sell' : 'buy');
+  b.textContent = (isStop ? 'Place stop to ' : '') + (side ? 'Sell SOL' : 'Buy SOL');
+}
+
+function submit() {
+  const price = parseFloat($('price').value), size = parseFloat($('size').value);
+  if (!(price > 0) || !(size > 0)) return say('Enter a price and a size above zero.', 'err');
+  if ($('otype').value === 'stop') {
+    const r = stop(current, +$('dir').value, parseFloat($('trigger').value), side, price, size, 3);
+    if (r < 0) say(errText(r), 'err');
+    else { say(`Stop ${short(r)} placed. Its funds are locked until it fires or you cancel it.`, 'good'); tape('Stop', 'note', `${TRADERS[current]} placed stop ${short(r)}`); }
+  } else {
+    const r = place(current, side, price, size, +$('otype').value, parseFloat($('rev').value) || 0, parseInt($('ttl').value, 10) || 0);
+    if (r < 0) say(errText(r), 'err');
+    else {
+      const [fl, fq, fee, rl, rp] = lastFill;
+      const parts = [];
+      if (fl) parts.push(`filled ${sol(fl)} SOL for ${usdc(fq)} USDC (fee ${usdc(fee)})`);
+      if (rl) parts.push(`rested ${sol(rl)} SOL at ${px(rp)} as ${short(r)}`);
+      say(parts.length ? parts.join(', ') + '.' : 'Nothing filled and nothing rested.', 'good');
+    }
+  }
+  render();
+}
+
+function sweep() {
+  selectTrader(3);
+  const r = place(3, 0, 150.4, 0.03, 3);
+  const [fl, fq] = lastFill;
+  say(r < 0 ? errText(r) : `Carla bought ${sol(fl)} SOL for ${usdc(fq)} USDC. Watch Ana's asks come back as bids.`, r < 0 ? 'err' : 'good');
+  render();
+}
+function crash() {
+  const lots = x.mb_swap(1, 60, 0, Math.round(148.0 * PX));
+  const [, q] = out(4);
+  drainEvents();
+  selectTrader(2);
+  say(lots < 0 ? errText(lots) : `A wallet sold ${sol(lots)} SOL for ${usdc(q)} USDC without a seat. The trade at 149.000 fired Bruno's stop.`, lots < 0 ? 'err' : 'good');
+  render();
+}
+function expire() {
+  selectTrader(1);
+  place(1, 0, 149.95, 0.02, 1, 0, 30);
+  place(1, 1, 150.05, 0.02, 1, 0, 30);
+  render();
+  setTimeout(() => {
+    now += 120; x.mb_set_time(now);
+    const n = x.mb_prune(100);
+    drainEvents();
+    say(`Two minutes later the 30-second quotes are dead: matching skips them, and a permissionless prune removed ${n}.`, 'good');
+    render();
+  }, 900);
+}
+
+async function main() {
+  const bytes = Uint8Array.from(atob(WASM_B64), (c) => c.charCodeAt(0));
+  const { instance } = await WebAssembly.instantiate(bytes, {});
+  x = instance.exports;
+  $('who').innerHTML = Object.entries(TRADERS).map(([id, n]) => `<button data-v="${id}" aria-pressed="${id === '1'}">${n}</button>`).join('');
+  $('who').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) selectTrader(+b.dataset.v); });
+  $('side').addEventListener('click', (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    side = +b.dataset.v;
+    document.querySelectorAll('#side button').forEach((el) => el.setAttribute('aria-pressed', String(el === b)));
+    syncTicket();
+  });
+  $('otype').addEventListener('change', syncTicket);
+  $('submit').addEventListener('click', submit);
+  $('orders').addEventListener('click', (e) => {
+    const b = e.target.closest('.x'); if (!b) return;
+    const r = x.mb_cancel(current, +b.dataset.id);
+    drainEvents();
+    say(r < 0 ? errText(r) : `Cancelled ${short(+b.dataset.id)}. Its funds are free again.`, r < 0 ? 'err' : 'good');
+    render();
+  });
+  $('s-sweep').addEventListener('click', sweep);
+  $('s-crash').addEventListener('click', crash);
+  $('s-expire').addEventListener('click', expire);
+  $('s-reset').addEventListener('click', () => { seed(); say('Market reset.', ''); });
+  syncTicket();
+  seed();
+}
+main().catch((e) => say('The engine failed to load: ' + e.message, 'err'));
+</script>
