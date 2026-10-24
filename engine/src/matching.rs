@@ -8,7 +8,8 @@ use bytemuck::cast_mut;
 use crate::events::{EventSink, FillEvent, OrderOutEvent, OutReason, PlacedEvent};
 use crate::market::{order_key, Market, TreeId};
 use crate::node::{
-    order_id, split_order_id, Node, NodeTag, OrderLeaf, FLAG_ASK, MAX_ORDER_SEQ, NIL, ORDER_INDEX_BITS,
+    order_id, split_order_id, Node, NodeTag, OrderLeaf, FLAG_ASK, MAX_ORDER_SEQ, NIL,
+    ORDER_INDEX_BITS,
 };
 use crate::rbtree::{EDGE_MAX, EDGE_MIN};
 use crate::{
@@ -370,6 +371,7 @@ impl Market<'_> {
     ) -> Result<MatchTotals> {
         let book = side.opposite();
         let mut t = MatchTotals::default();
+        let mut rebates = 0u64;
         let taker_owner = match taker {
             Taker::Seat(s) if wants_fills(sink) => Some(self.trader(s)?.owner),
             _ => None,
@@ -438,10 +440,7 @@ impl Market<'_> {
                     }
                 }
             }
-            let h = &mut *self.header;
-            h.fees_accrued = add(h.fees_accrued, sub(fee, rebate)?)?;
-            h.total_base_lots_traded = h.total_base_lots_traded.saturating_add(fill);
-            h.total_quote_atoms_traded = h.total_quote_atoms_traded.saturating_add(quote);
+            rebates = add(rebates, rebate)?;
             let remaining = maker_lots - fill;
             let (seq, client_order_id) = {
                 let o = self.order_mut(m)?;
@@ -449,12 +448,11 @@ impl Market<'_> {
                 (o.seq, o.client_order_id)
             };
             if wants_fills(sink) {
-                let maker_owner = self.trader(maker)?.owner;
                 sink.on_fill(&FillEvent {
-                    maker: maker_owner,
+                    maker: &self.trader(maker)?.owner,
                     maker_order_id: order_id(seq, m),
                     maker_client_order_id: client_order_id,
-                    taker: taker_owner,
+                    taker: taker_owner.as_ref(),
                     taker_side: side,
                     price,
                     base_lots: fill,
@@ -475,6 +473,10 @@ impl Market<'_> {
                 *b = sub(*b, add(quote, fee)?)?;
             }
         }
+        let h = &mut *self.header;
+        h.fees_accrued = add(h.fees_accrued, sub(t.fee_atoms, rebates)?)?;
+        h.total_base_lots_traded = h.total_base_lots_traded.saturating_add(t.base_lots);
+        h.total_quote_atoms_traded = h.total_quote_atoms_traded.saturating_add(t.quote_atoms);
         t.remaining = lots;
         Ok(t)
     }

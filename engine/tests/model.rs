@@ -2,6 +2,7 @@
 //! and a naive Vec-based reference model must produce identical results,
 //! and the engine's invariants must hold after every step.
 #![allow(
+    clippy::type_complexity,
     clippy::unwrap_used,
     clippy::expect_used,
     clippy::indexing_slicing,
@@ -215,7 +216,10 @@ impl Model {
                 None => {
                     let n = p.base_lots * p.price * QLS;
                     // The fee buffer is needed only if the order reaches the best ask.
-                    let reaches = self.book(Side::Ask).first().is_some_and(|&i| self.orders[i].price <= p.price);
+                    let reaches = self
+                        .book(Side::Ask)
+                        .first()
+                        .is_some_and(|&i| self.orders[i].price <= p.price);
                     let need = if takes && reaches {
                         n + fee(n) + u64::from(ml).min(p.base_lots)
                     } else {

@@ -1,6 +1,7 @@
 //! Runs the same compute-unit scenarios as `bench.rs` against Manifest, built from source
 //! by `scripts/build-competitors.sh`. Skipped when the competitor binary is missing.
 #![allow(
+    clippy::chunks_exact_to_as_chunks,
     clippy::unwrap_used,
     clippy::expect_used,
     clippy::indexing_slicing,

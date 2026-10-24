@@ -1,6 +1,7 @@
 //! Prints a compute-unit trace of one batch update. Build the program with
 //! `cargo build-sbf --features cu-trace` first.
 #![allow(
+    clippy::chunks_exact_to_as_chunks,
     clippy::unwrap_used,
     clippy::expect_used,
     clippy::indexing_slicing,

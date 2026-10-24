@@ -1,5 +1,6 @@
 //! LiteSVM harness for the Matchbook program.
 #![allow(
+    clippy::result_large_err,
     dead_code,
     clippy::unwrap_used,
     clippy::expect_used,

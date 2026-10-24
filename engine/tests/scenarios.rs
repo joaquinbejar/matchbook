@@ -14,16 +14,24 @@ struct Fx {
     data: Vec<u8>,
 }
 
+struct Fill {
+    maker_order_id: u64,
+    maker_remaining: u64,
+}
+
 #[derive(Default)]
 struct Rec {
-    fills: Vec<FillEvent>,
+    fills: Vec<Fill>,
     outs: Vec<OrderOutEvent>,
     placed: Vec<PlacedEvent>,
 }
 
 impl EventSink for Rec {
-    fn on_fill(&mut self, e: &FillEvent) {
-        self.fills.push(*e);
+    fn on_fill(&mut self, e: &FillEvent<'_>) {
+        self.fills.push(Fill {
+            maker_order_id: e.maker_order_id,
+            maker_remaining: e.maker_remaining,
+        });
     }
     fn on_out(&mut self, e: &OrderOutEvent) {
         self.outs.push(*e);

@@ -1,5 +1,6 @@
 //! Compute-unit benchmarks. Run with `cargo test --test bench -- --nocapture`.
 #![allow(
+    clippy::chunks_exact_to_as_chunks,
     clippy::unwrap_used,
     clippy::expect_used,
     clippy::indexing_slicing,

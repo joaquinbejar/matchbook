@@ -237,17 +237,11 @@ fn place_order(accounts: &mut [AccountView], h: Header, r: &mut Reader<'_>) -> P
     let ts = now()?;
     let mut data = market.try_borrow_mut()?;
     let mut m = Market::load_mut(&mut data).map_err(engine)?;
-    let me = owner_bytes(owner);
-    let t = m.resolve_trader(&me, Some(hint)).map_err(engine)?;
+    let t = m
+        .resolve_trader(&owner_bytes(owner), Some(hint))
+        .map_err(engine)?;
     let mut s = LogSink::new();
     let out = m.place_order(t, &p, ts, &mut s).map_err(engine)?;
-    s.take(
-        &me,
-        p.side,
-        out.filled_base_lots,
-        out.filled_quote_atoms,
-        out.fee_atoms,
-    );
     set_return_data(&out.order_id.unwrap_or(0).to_le_bytes());
     Ok(())
 }
@@ -297,8 +291,9 @@ fn batch_update(accounts: &mut [AccountView], h: Header, r: &mut Reader<'_>) -> 
     let ts = now()?;
     let mut data = market.try_borrow_mut()?;
     let mut m = Market::load_mut(&mut data).map_err(engine)?;
-    let me = owner_bytes(owner);
-    let t = m.resolve_trader(&me, Some(hint)).map_err(engine)?;
+    let t = m
+        .resolve_trader(&owner_bytes(owner), Some(hint))
+        .map_err(engine)?;
     let s = &mut LogSink::new();
     if cancel_all != 0 {
         let side = match cancel_all {
@@ -310,7 +305,6 @@ fn batch_update(accounts: &mut [AccountView], h: Header, r: &mut Reader<'_>) -> 
     }
     for _ in 0..n_cancels {
         let id = r.u64()?;
-        matchbook_engine::cu!();
         // A cancel racing a fill is not an error for market makers.
         match m.cancel_order(t, id, s) {
             Ok(()) | Err(matchbook_engine::EngineError::OrderNotFound) => {}
@@ -319,17 +313,8 @@ fn batch_update(accounts: &mut [AccountView], h: Header, r: &mut Reader<'_>) -> 
     }
     let mut ids = [0u64; MAX_BATCH as usize];
     for slot in ids.iter_mut().take(usize::from(n_orders)) {
-        matchbook_engine::cu!();
         let p = r.pod::<OrderArgs>()?.to_params()?;
         let out = m.place_order(t, &p, ts, s).map_err(engine)?;
-        matchbook_engine::cu!();
-        s.take(
-            &me,
-            p.side,
-            out.filled_base_lots,
-            out.filled_quote_atoms,
-            out.fee_atoms,
-        );
         *slot = out.order_id.unwrap_or(0);
     }
     if let Some(placed) = ids.get(..usize::from(n_orders)) {
@@ -377,13 +362,6 @@ fn swap(accounts: &mut [AccountView], h: Header, r: &mut Reader<'_>) -> ProgramR
                 &mut sink,
             )
             .map_err(engine)?;
-        sink.take(
-            &owner_bytes(user),
-            side,
-            out.base_lots,
-            out.quote_atoms,
-            out.fee_atoms,
-        );
         (out, [m.header().host_bump as u8])
     };
     let base_dec = mint_decimals(base_mint, base_tp)?;

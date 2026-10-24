@@ -23,6 +23,7 @@ pub fn mul(a: u64, b: u64) -> Option<u64> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::indexing_slicing)]
 mod tests {
     use super::mul;
 

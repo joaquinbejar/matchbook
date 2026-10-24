@@ -11,12 +11,11 @@
 //! knows what it cancelled. Orders that leave the book because of someone
 //! else's transaction (expiry, self-trade prevention) are logged.
 //!
-//! Fills carry only what cannot be derived: an instruction that takes
-//! liquidity ends with one [`tag::TAKE`] summary naming the taker and its
-//! totals, and each fill's quote amount, taker fee and maker rebate follow
-//! from the market's lot sizes and fee rates.
+//! Fills carry only what cannot be derived. The taker is the owner account
+//! of the instruction that emitted them, and each fill's quote amount, taker
+//! fee and maker rebate follow from the market's lot sizes and fee rates.
 
-use matchbook_engine::{EventSink, FillEvent, OrderOutEvent, OutReason, Side};
+use matchbook_engine::{EventSink, FillEvent, OrderOutEvent, OutReason};
 
 /// Event tags.
 pub mod tag {
@@ -26,7 +25,7 @@ pub mod tag {
     pub const OUT: u8 = 2;
     /// Reserved: placements are reported through return data.
     pub const PLACED: u8 = 3;
-    /// Totals of one taking order or swap. See [`super::TAKE_LEN`].
+    /// Reserved.
     pub const TAKE: u8 = 4;
 }
 
@@ -36,9 +35,6 @@ pub const FILL_LEN: usize = 1 + 32 + 8 * 5;
 /// Out: tag, owner (32), order id, client order id, side (1), price,
 /// base lots, reason (1).
 pub const OUT_LEN: usize = 1 + 32 + 8 + 8 + 1 + 8 + 8 + 1;
-/// Take: tag, taker (32, zero for a seatless swap), side (1), base lots,
-/// quote atoms before fees, taker fee atoms.
-pub const TAKE_LEN: usize = 1 + 32 + 1 + 8 + 8 + 8;
 
 /// Bytes buffered before an early flush. Large enough for 13 fills.
 const CAPACITY: usize = 960;
@@ -76,7 +72,7 @@ impl<'a, const N: usize> Enc<'a, N> {
 #[inline(always)]
 fn write_fill(out: &mut [u8; FILL_LEN], e: &FillEvent) {
     let mut b = Enc::new(out, tag::FILL);
-    b.put(&e.maker);
+    b.put(e.maker);
     b.u64(e.maker_order_id);
     b.u64(e.maker_client_order_id);
     b.u64(e.price);
@@ -96,23 +92,6 @@ fn write_out(out: &mut [u8; OUT_LEN], e: &OrderOutEvent) {
     b.u8(e.reason as u8);
 }
 
-#[inline(always)]
-fn write_take(
-    out: &mut [u8; TAKE_LEN],
-    taker: &[u8; 32],
-    side: Side,
-    base_lots: u64,
-    quote_atoms: u64,
-    fee_atoms: u64,
-) {
-    let mut b = Enc::new(out, tag::TAKE);
-    b.put(taker);
-    b.u8(side as u8);
-    b.u64(base_lots);
-    b.u64(quote_atoms);
-    b.u64(fee_atoms);
-}
-
 /// Encodes a fill event.
 pub fn encode_fill(e: &FillEvent) -> [u8; FILL_LEN] {
     let mut b = [0; FILL_LEN];
@@ -124,19 +103,6 @@ pub fn encode_fill(e: &FillEvent) -> [u8; FILL_LEN] {
 pub fn encode_out(e: &OrderOutEvent) -> [u8; OUT_LEN] {
     let mut b = [0; OUT_LEN];
     write_out(&mut b, e);
-    b
-}
-
-/// Encodes a take summary.
-pub fn encode_take(
-    taker: &[u8; 32],
-    side: Side,
-    base_lots: u64,
-    quote_atoms: u64,
-    fee_atoms: u64,
-) -> [u8; TAKE_LEN] {
-    let mut b = [0; TAKE_LEN];
-    write_take(&mut b, taker, side, base_lots, quote_atoms, fee_atoms);
     b
 }
 
@@ -166,22 +132,6 @@ impl LogSink {
         let at = self.len;
         self.len += K;
         self.buf.get_mut(at..at + K).and_then(|s| s.try_into().ok())
-    }
-
-    /// Records the totals of a taking order, if it traded.
-    pub fn take(
-        &mut self,
-        taker: &[u8; 32],
-        side: Side,
-        base_lots: u64,
-        quote_atoms: u64,
-        fee_atoms: u64,
-    ) {
-        if base_lots > 0 {
-            if let Some(b) = self.slot() {
-                write_take(b, taker, side, base_lots, quote_atoms, fee_atoms);
-            }
-        }
     }
 
     /// Writes buffered events to the log.

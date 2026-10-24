@@ -433,6 +433,7 @@ pub(crate) fn validate(nodes: &[Node], root: u32) -> Result<u32> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::indexing_slicing)]
 mod tests {
     use super::*;
     use std::vec::Vec;
@@ -473,7 +474,7 @@ mod tests {
                     live.push(i);
                 } else {
                     // Mostly remove the minimum, as matching does.
-                    let k = if x % 3 == 0 {
+                    let k = if x.is_multiple_of(3) {
                         (x >> 8) as usize % live.len()
                     } else {
                         let m = min(t.nodes, *t.root).unwrap();

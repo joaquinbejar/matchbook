@@ -16,17 +16,18 @@ pub enum OutReason {
     SelfTrade = 3,
 }
 
-/// A trade between a resting order and a taker.
+/// A trade between a resting order and a taker. Borrows the owners from
+/// the market so that building it costs no copies.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct FillEvent {
+pub struct FillEvent<'a> {
     /// Maker owner.
-    pub maker: [u8; 32],
+    pub maker: &'a [u8; 32],
     /// Maker order id.
     pub maker_order_id: u64,
     /// Maker client order id.
     pub maker_client_order_id: u64,
     /// Taker owner, or `None` for seatless swaps.
-    pub taker: Option<[u8; 32]>,
+    pub taker: Option<&'a [u8; 32]>,
     /// Taker side.
     pub taker_side: Side,
     /// Execution price (the maker's price).
@@ -95,7 +96,7 @@ pub trait EventSink {
         true
     }
     /// A fill happened.
-    fn on_fill(&mut self, _e: &FillEvent) {}
+    fn on_fill(&mut self, _e: &FillEvent<'_>) {}
     /// An order left the book.
     fn on_out(&mut self, _e: &OrderOutEvent) {}
     /// An order started resting.
