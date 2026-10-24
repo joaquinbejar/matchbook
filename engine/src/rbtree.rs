@@ -498,7 +498,7 @@ mod tests {
                 if insert {
                     let i = free.pop().unwrap();
                     t.nodes[i as usize].flags = 0;
-                    if x % 2 == 0 {
+                    if x.is_multiple_of(2) {
                         t.insert(i).unwrap();
                     } else {
                         let (lo, hi) = (

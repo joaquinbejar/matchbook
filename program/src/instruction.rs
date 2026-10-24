@@ -168,6 +168,7 @@ impl<'a> Reader<'a> {
 
     /// Whether any [`OrderArgs`] following `skip` u64 values carries an
     /// expiry. Peeks without consuming.
+    #[allow(clippy::chunks_exact_to_as_chunks)]
     pub fn any_expiry_after(&self, skip: usize) -> bool {
         let rest = self.data.get(skip.saturating_mul(8)..).unwrap_or_default();
         rest.chunks_exact(OrderArgs::LEN)
