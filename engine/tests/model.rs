@@ -32,8 +32,27 @@ struct MOrder {
     partner: Option<u64>,
 }
 
+#[derive(Clone, Debug)]
+struct MStop {
+    seq: u64,
+    trader: usize,
+    above: bool,
+    trigger: u64,
+    side: Side,
+    price: u64,
+    lots: u64,
+    ty: OrderType,
+    stp: SelfTradeBehavior,
+    ml: u32,
+    coid: u64,
+    exp: u64,
+    partner: Option<u64>,
+}
+
 #[derive(Clone, Debug, Default)]
 struct Model {
+    stops: Vec<MStop>,
+    last: u64,
     base: [u64; TRADERS],
     quote: [u64; TRADERS],
     orders: Vec<MOrder>,
@@ -63,7 +82,196 @@ impl Model {
             .iter()
             .filter(|o| o.rev != 0 && o.partner.is_none())
             .count();
-        self.capacity - TRADERS as u32 - self.orders.len() as u32 - reserved as u32
+        self.capacity
+            - TRADERS as u32
+            - self.orders.len() as u32
+            - self.stops.len() as u32
+            - reserved as u32
+    }
+    fn stop_lock(side: Side, price: u64, lots: u64, ml: u32) -> u64 {
+        match side {
+            Side::Ask => lots * BLS,
+            Side::Bid => {
+                let n = lots * price * QLS;
+                n + fee(n) + u64::from(ml).min(lots)
+            }
+        }
+    }
+    fn credit(&mut self, t: usize, side: Side, amount: u64) {
+        match side {
+            Side::Ask => self.base[t] += amount,
+            Side::Bid => self.quote[t] += amount,
+        }
+    }
+    fn met(above: bool, trigger: u64, last: u64) -> bool {
+        last != 0
+            && if above {
+                last >= trigger
+            } else {
+                last <= trigger
+            }
+    }
+    fn place_stop(&mut self, t: usize, sp: &StopParams, now: u64) -> Result<u64> {
+        let o = &sp.order;
+        if o.price == 0 {
+            return Err(EngineError::InvalidPrice);
+        }
+        if o.base_lots == 0 {
+            return Err(EngineError::InvalidQuantity);
+        }
+        if o.expires_at != 0 && o.expires_at <= now {
+            return Err(EngineError::AlreadyExpired);
+        }
+        if sp.trigger_price == 0 || o.quote_budget.is_some() || o.reverse_spread != 0 {
+            return Err(EngineError::InvalidStop);
+        }
+        let above = sp.direction == TriggerDirection::Above;
+        if Self::met(above, sp.trigger_price, self.last) {
+            return Err(EngineError::StopWouldTrigger);
+        }
+        let partner = if sp.oco_with == 0 {
+            None
+        } else {
+            match self
+                .stops
+                .iter()
+                .find(|s| s.seq == sp.oco_with && s.trader == t)
+            {
+                Some(s) if s.partner.is_none() => Some(s.seq),
+                _ => return Err(EngineError::InvalidStop),
+            }
+        };
+        let ml = o.match_limit.clamp(1, MAX_STOP_MATCH_LIMIT);
+        let amount = Self::stop_lock(o.side, o.price, o.base_lots, ml);
+        let free = match o.side {
+            Side::Ask => self.base[t],
+            Side::Bid => self.quote[t],
+        };
+        if free < amount {
+            return Err(EngineError::InsufficientFunds);
+        }
+        if self.free_nodes() == 0 {
+            return Err(EngineError::OutOfSpace);
+        }
+        match o.side {
+            Side::Ask => self.base[t] -= amount,
+            Side::Bid => self.quote[t] -= amount,
+        }
+        self.seq += 1;
+        if let Some(ps) = partner {
+            self.stops.iter_mut().find(|s| s.seq == ps).unwrap().partner = Some(self.seq);
+        }
+        self.stops.push(MStop {
+            seq: self.seq,
+            trader: t,
+            above,
+            trigger: sp.trigger_price,
+            side: o.side,
+            price: o.price,
+            lots: o.base_lots,
+            ty: o.order_type,
+            stp: o.self_trade,
+            ml,
+            coid: o.client_order_id,
+            exp: o.expires_at,
+            partner,
+        });
+        Ok(self.seq)
+    }
+    fn remove_stop(&mut self, seq: u64) -> MStop {
+        let i = self.stops.iter().position(|s| s.seq == seq).unwrap();
+        let s = self.stops.remove(i);
+        if let Some(ps) = s.partner {
+            self.stops.iter_mut().find(|q| q.seq == ps).unwrap().partner = None;
+        }
+        self.credit(
+            s.trader,
+            s.side,
+            Self::stop_lock(s.side, s.price, s.lots, s.ml),
+        );
+        s
+    }
+    fn run_stops(&mut self, now: u64, limit: u32) -> Result<u32> {
+        let mut n = 0;
+        while n < limit {
+            let last = self.last;
+            let above = self
+                .stops
+                .iter()
+                .filter(|s| s.above && Self::met(true, s.trigger, last))
+                .min_by_key(|s| (s.trigger, s.seq))
+                .map(|s| s.seq);
+            let below = || {
+                self.stops
+                    .iter()
+                    .filter(|s| !s.above && Self::met(false, s.trigger, last))
+                    .min_by_key(|s| (std::cmp::Reverse(s.trigger), s.seq))
+                    .map(|s| s.seq)
+            };
+            let Some(seq) = above.or_else(below) else {
+                break;
+            };
+            n += 1;
+            let s = self.remove_stop(seq);
+            if s.exp != 0 && now >= s.exp {
+                continue;
+            }
+            if let Some(ps) = s.partner {
+                self.remove_stop(ps);
+            }
+            let p = OrderParams {
+                side: s.side,
+                price: s.price,
+                base_lots: s.lots,
+                order_type: s.ty,
+                self_trade: s.stp,
+                client_order_id: s.coid,
+                expires_at: s.exp,
+                quote_budget: None,
+                match_limit: s.ml,
+                reverse_spread: 0,
+            };
+            match self.place_only(s.trader, &p, now) {
+                Ok(_)
+                | Err(
+                    EngineError::PostOnlyWouldCross
+                    | EngineError::FillOrKillNotFilled
+                    | EngineError::SelfTrade
+                    | EngineError::OutOfSpace
+                    | EngineError::InvalidQuantity
+                    | EngineError::InsufficientFunds,
+                ) => {}
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(n)
+    }
+    fn place(&mut self, t: usize, p: &OrderParams, now: u64) -> Result<PlaceOutcome> {
+        // The engine skips stops for an order that cannot reach the book.
+        let reaches = self
+            .book(p.side.opposite())
+            .first()
+            .is_some_and(|&i| crosses(p.side, self.orders[i].price, p.price));
+        let out = self.place_only(t, p, now)?;
+        if reaches {
+            self.run_stops(now, AUTO_TRIGGER_LIMIT)?;
+        }
+        Ok(out)
+    }
+    fn swap(&mut self, sp: &SwapParams, now: u64) -> Result<(u64, u64, u64, u32, u64)> {
+        let side = sp.side;
+        let r = self.match_book(
+            None,
+            side,
+            sp.limit_price,
+            sp.base_lots,
+            (side == Side::Bid).then_some(sp.quote_budget),
+            SelfTradeBehavior::CancelProvide,
+            sp.match_limit.max(1),
+            now,
+        )?;
+        self.run_stops(now, AUTO_TRIGGER_LIMIT)?;
+        Ok(r)
     }
     /// Indices of `side` orders in priority order.
     fn book(&self, side: Side) -> Vec<usize> {
@@ -128,6 +336,7 @@ impl Model {
         now: u64,
     ) -> Result<(u64, u64, u64, u32, u64)> {
         let (mut fl, mut fq, mut ff, mut touched) = (0, 0, 0, 0u32);
+        let mut last = 0;
         while lots > 0 && touched < ml {
             let Some(&i) = self.book(side.opposite()).first() else {
                 break;
@@ -222,6 +431,7 @@ impl Model {
                 self.orders[i].lots -= f;
             }
             lots -= f;
+            last = o.price;
             fl += f;
             fq += q;
             ff += tf;
@@ -229,10 +439,13 @@ impl Model {
                 *b -= q + tf;
             }
         }
+        if last != 0 {
+            self.last = last;
+        }
         Ok((fl, fq, ff, touched, lots))
     }
 
-    fn place(&mut self, t: usize, p: &OrderParams, now: u64) -> Result<PlaceOutcome> {
+    fn place_only(&mut self, t: usize, p: &OrderParams, now: u64) -> Result<PlaceOutcome> {
         if p.price == 0 {
             return Err(EngineError::InvalidPrice);
         }
@@ -444,6 +657,22 @@ enum Op {
     Tick(u64),
     Prune(u32),
     Grow(u32),
+    PlaceStop {
+        t: usize,
+        side: bool,
+        price: u64,
+        lots: u64,
+        ty: u8,
+        stp: u8,
+        exp: Option<u64>,
+        ml: u32,
+        coid: u64,
+        trigger: u64,
+        above: bool,
+        oco: Option<usize>,
+        bad: u8,
+    },
+    TriggerStops(u32),
 }
 
 fn op() -> impl Strategy<Value = Op> {
@@ -460,6 +689,9 @@ fn op() -> impl Strategy<Value = Op> {
         1 => (1u64..15).prop_map(Op::Tick),
         1 => (1u32..5).prop_map(Op::Prune),
         1 => (1u32..6).prop_map(Op::Grow),
+        4 => (0..TRADERS, any::<bool>(), 1u64..30, 1u64..12, 0u8..5, 0u8..3, proptest::option::of(1u64..40), (0u32..40, 0u64..4, 1u64..30, any::<bool>(), proptest::option::of(0usize..4), prop_oneof![12 => Just(0u8), 1 => 1u8..3]))
+            .prop_map(|(t, side, price, lots, ty, stp, exp, (ml, coid, trigger, above, oco, bad))| Op::PlaceStop { t, side, price, lots, ty, stp, exp, ml, coid, trigger, above, oco, bad }),
+        1 => (0u32..4).prop_map(Op::TriggerStops),
     ]
 }
 
@@ -582,7 +814,8 @@ proptest! {
                     prop_assert_eq!(a, b, "place {:?}", p);
                 }
                 Op::Cancel { t, nth } => {
-                    let mine: Vec<u64> = md.orders.iter().filter(|o| o.trader == t).map(|o| o.seq).collect();
+                    let mine: Vec<u64> = md.orders.iter().filter(|o| o.trader == t).map(|o| o.seq)
+                        .chain(md.stops.iter().filter(|s| s.trader == t).map(|s| s.seq)).collect();
                     // Past the trader's live orders, try a stale id whose node may have been reused.
                     let id = mine.get(nth).copied().unwrap_or(u64::MAX);
                     let eid = match ids.get(&id) {
@@ -593,19 +826,27 @@ proptest! {
                             .unwrap_or_else(|| stale.get(nth).copied().unwrap_or(u64::MAX)),
                     };
                     let a = m.cancel_order(seats[t], eid, &mut NoopSink);
-                    let b = if mine.contains(&id) { md.remove(id); stale.push(eid); Ok(()) } else { Err(EngineError::OrderNotFound) };
+                    let b = if mine.contains(&id) {
+                        if md.orders.iter().any(|o| o.seq == id) { md.remove(id); } else { md.remove_stop(id); }
+                        stale.push(eid);
+                        Ok(())
+                    } else { Err(EngineError::OrderNotFound) };
                     prop_assert_eq!(a, b);
                 }
                 Op::CancelCoid { t, coid } => {
                     let ids: Vec<u64> = md.orders.iter().filter(|o| o.trader == t && o.coid == coid).map(|o| o.seq).collect();
                     for id in &ids { md.remove(*id); }
-                    prop_assert_eq!(m.cancel_by_client_id(seats[t], coid, &mut NoopSink), Ok(ids.len() as u32));
+                    let sids: Vec<u64> = md.stops.iter().filter(|s| s.trader == t && s.coid == coid).map(|s| s.seq).collect();
+                    for id in &sids { md.remove_stop(*id); }
+                    prop_assert_eq!(m.cancel_by_client_id(seats[t], coid, &mut NoopSink), Ok((ids.len() + sids.len()) as u32));
                 }
                 Op::CancelAll { t, side } => {
                     let side = side.map(|b| if b { Side::Bid } else { Side::Ask });
                     let ids: Vec<u64> = md.orders.iter().filter(|o| o.trader == t && side.is_none_or(|s| s == o.side)).map(|o| o.seq).collect();
                     for id in &ids { md.remove(*id); }
-                    prop_assert_eq!(m.cancel_all(seats[t], side, &mut NoopSink), Ok(ids.len() as u32));
+                    let sids: Vec<u64> = md.stops.iter().filter(|o| o.trader == t && side.is_none_or(|s| s == o.side)).map(|o| o.seq).collect();
+                    for id in &sids { md.remove_stop(*id); }
+                    prop_assert_eq!(m.cancel_all(seats[t], side, &mut NoopSink), Ok((ids.len() + sids.len()) as u32));
                 }
                 Op::Reduce { t, nth, lots } => {
                     let mine: Vec<u64> = md.orders.iter().filter(|o| o.trader == t).map(|o| o.seq).collect();
@@ -623,7 +864,7 @@ proptest! {
                     let sp = SwapParams { side, base_lots: lots, quote_budget: budget, limit_price: limit, match_limit: ml };
                     let eng_now = if m.needs_clock(false) { now } else { 0 };
                     let a = m.swap(&sp, eng_now, &mut NoopSink);
-                    let b = md.match_book(None, side, limit, lots, (side == Side::Bid).then_some(budget), SelfTradeBehavior::CancelProvide, ml, now);
+                    let b = md.swap(&sp, now);
                     let (fl, fq, ff, touched, _) = b.unwrap();
                     let a = a.unwrap();
                     prop_assert_eq!((a.base_lots, a.quote_atoms, a.fee_atoms, a.makers_touched), (fl, fq, ff, touched));
@@ -664,6 +905,40 @@ proptest! {
                     prop_assert_eq!(n, removed);
                 }
                 Op::Grow(_) => unreachable!(),
+                Op::PlaceStop { t, side, price, lots, ty, stp, exp, ml, coid, trigger, above, oco, bad } => {
+                    let side = if side { Side::Bid } else { Side::Ask };
+                    let oco_with = oco.and_then(|k| md.stops.iter().filter(|s| s.trader == t).nth(k)).map_or(0, |s| ids[&s.seq]);
+                    let mut order = OrderParams {
+                        side, price, base_lots: lots,
+                        order_type: OrderType::from_u8(ty).unwrap(),
+                        self_trade: SelfTradeBehavior::from_u8(stp).unwrap(),
+                        client_order_id: coid,
+                        expires_at: exp.map_or(0, |e| now + e),
+                        quote_budget: None,
+                        match_limit: ml,
+                        reverse_spread: 0,
+                    };
+                    match bad { 1 => order.quote_budget = Some(5), 2 => order.reverse_spread = 7, _ => {} }
+                    let sp = StopParams {
+                        trigger_price: trigger,
+                        direction: if above { TriggerDirection::Above } else { TriggerDirection::Below },
+                        order,
+                        oco_with,
+                    };
+                    let mut msp = sp;
+                    msp.oco_with = oco.and_then(|k| md.stops.iter().filter(|s| s.trader == t).nth(k)).map_or(0, |s| s.seq);
+                    let eng_now = if m.needs_clock(order.expires_at != 0) { now } else { 0 };
+                    let a = m.place_stop(seats[t], &sp, eng_now);
+                    let b = md.place_stop(t, &msp, now);
+                    let a = a.map(|id| { let (seq, _) = split_order_id(id); ids.insert(seq, id); seq });
+                    prop_assert_eq!(a, b, "stop {:?}", sp);
+                }
+                Op::TriggerStops(limit) => {
+                    let eng_now = if m.needs_clock(false) { now } else { 0 };
+                    let a = m.trigger_stops(eng_now, limit, &mut NoopSink);
+                    let b = md.run_stops(now, limit);
+                    prop_assert_eq!(a, b);
+                }
             }
             // Learn the ids of orders the engine placed on its own (reverse orders).
             for side in [Side::Bid, Side::Ask] {
@@ -679,6 +954,17 @@ proptest! {
             prop_assert_eq!(totals.base_atoms, vault_base);
             prop_assert_eq!(totals.quote_atoms, vault_quote);
             prop_assert_eq!(snapshot(&m, &seats, now), model_snapshot(&md));
+            prop_assert_eq!(m.header().last_price, md.last);
+            let mut es = vec![];
+            for (t, &seat) in seats.iter().enumerate() {
+                m.for_each_trader_stop(seat, |_, s| {
+                    let partner = (s.partner() != NIL).then(|| m.stop(s.partner()).unwrap().seq());
+                    es.push((t, s.seq(), s.trigger_price(), s.base_lots, partner));
+                }).unwrap();
+            }
+            es.sort_by_key(|e| e.1);
+            let ms: Vec<_> = md.stops.iter().map(|s| (s.trader, s.seq, s.trigger, s.lots, s.partner)).collect();
+            prop_assert_eq!(es, ms);
             // Live book is never crossed.
             let mut bb = None; let mut ba = None;
             m.for_each_order(Side::Bid, now, |o| { bb = Some(o.price); false }).unwrap();

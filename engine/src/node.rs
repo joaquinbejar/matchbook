@@ -36,6 +36,7 @@ pub const fn split_order_id(id: u64) -> (u64, u32) {
 
 pub(crate) const FLAG_RED: u32 = 1;
 pub(crate) const FLAG_ASK: u32 = 1 << 1;
+pub(crate) const FLAG_ABOVE: u32 = 1 << 2;
 
 /// Kind of a node, stored in its first four bytes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -51,6 +52,8 @@ pub enum NodeTag {
     Trader = 3,
     /// Key allowed to act for a seat.
     Delegate = 4,
+    /// Order waiting for a trigger price.
+    Stop = 5,
 }
 
 /// Untyped node with the shared tree prefix. Cast to [`OrderLeaf`] or
@@ -173,6 +176,99 @@ impl OrderLeaf {
         self.expires_at != 0 && now >= self.expires_at
     }
 }
+
+/// An order that waits until the last trade price reaches a trigger, then
+/// is placed for its seat. Funds for the order are locked while it waits.
+///
+/// Stops live in two trees, one for each trigger direction, keyed by the
+/// trigger price and then the sequence number (complemented for stops below,
+/// so that the first to trigger is the minimum above and the maximum below,
+/// earliest first). They share the seat's order list, so `trader`, `prev`
+/// and `next` sit at the same offsets as in [`OrderLeaf`].
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable, Debug)]
+pub struct StopLeaf {
+    /// Always [`NodeTag::Stop`].
+    pub tag: u32,
+    /// Tree flags, plus the order side and the trigger direction.
+    pub flags: u32,
+    /// Tree link.
+    pub left: u32,
+    /// Tree link.
+    pub right: u32,
+    /// Tree link.
+    pub parent: u32,
+    /// Node index of the one-cancels-other partner plus one, or 0.
+    pub extra: u32,
+    /// Low half of the key: the sequence number, complemented below.
+    pub key_lo: u64,
+    /// High half of the key: the trigger price.
+    pub key_hi: u64,
+    /// Owning trader node.
+    pub trader: u32,
+    /// Previous order or stop of the same trader.
+    pub prev: u32,
+    /// Next order or stop of the same trader.
+    pub next: u32,
+    /// [`crate::OrderType`] of the order.
+    pub order_type: u8,
+    /// [`crate::SelfTradeBehavior`] of the order.
+    pub self_trade: u8,
+    /// Match limit of the order.
+    pub match_limit: u16,
+    /// Limit price of the order.
+    pub price: u64,
+    /// Size of the order in base lots.
+    pub base_lots: u64,
+    /// Client-supplied id.
+    pub client_order_id: u64,
+    /// Unix timestamp at which the stop, and the order it places, die
+    /// (0 = never).
+    pub expires_at: u64,
+}
+
+impl StopLeaf {
+    /// Trigger price.
+    #[inline]
+    pub fn trigger_price(&self) -> u64 {
+        self.key_hi
+    }
+
+    /// True if it triggers when the last price is at or above the trigger.
+    #[inline]
+    pub fn is_above(&self) -> bool {
+        self.flags & FLAG_ABOVE != 0
+    }
+
+    /// True for a sell order.
+    #[inline]
+    pub fn is_ask(&self) -> bool {
+        self.flags & FLAG_ASK != 0
+    }
+
+    /// Sequence number.
+    #[inline]
+    pub fn seq(&self) -> u64 {
+        if self.is_above() {
+            self.key_lo
+        } else {
+            !self.key_lo
+        }
+    }
+
+    /// The one-cancels-other partner, or [`NIL`].
+    #[inline]
+    pub fn partner(&self) -> u32 {
+        self.extra.wrapping_sub(1)
+    }
+}
+
+const _: () = {
+    assert!(core::mem::size_of::<StopLeaf>() == NODE_SIZE);
+    assert!(core::mem::offset_of!(StopLeaf, trader) == core::mem::offset_of!(OrderLeaf, trader));
+    assert!(core::mem::offset_of!(StopLeaf, prev) == core::mem::offset_of!(OrderLeaf, prev));
+    assert!(core::mem::offset_of!(StopLeaf, next) == core::mem::offset_of!(OrderLeaf, next));
+};
 
 /// A trader seat, keyed by the first 16 bytes of the owner.
 #[repr(C)]

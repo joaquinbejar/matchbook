@@ -70,6 +70,15 @@ pub enum Ix {
     /// itself. Accounts: signer (s), market (w). Payload: delegate key
     /// (32 bytes).
     RemoveDelegate = 15,
+    /// Places a stop: an order that waits until a trade reaches its trigger
+    /// price, with its funds locked meanwhile. Trades set off stops
+    /// themselves, so no keeper is needed. Cancel it like an order.
+    /// Accounts: owner (s,w), market (w), system_program. `a`: direction
+    /// (0 above, 1 below). Payload: [`StopArgs`]. Return data: the stop id.
+    PlaceStop = 16,
+    /// Places stops whose trigger has been reached beyond those every trade
+    /// places itself. Accounts: market (w). `hint`: max stops. Permissionless.
+    TriggerStops = 17,
 }
 
 impl Ix {
@@ -92,6 +101,8 @@ impl Ix {
             13 => Self::PruneExpired,
             14 => Self::SetDelegate,
             15 => Self::RemoveDelegate,
+            16 => Self::PlaceStop,
+            17 => Self::TriggerStops,
             _ => return None,
         })
     }
@@ -336,6 +347,18 @@ pub struct DelegateArgs {
     pub permissions: u64,
 }
 
+/// Arguments of [`Ix::PlaceStop`]. The direction travels in the header.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Pod, Zeroable)]
+pub struct StopArgs {
+    /// The order to place when triggered. No quote budget or reverse spread.
+    pub order: OrderArgs,
+    /// Trigger price (quote lots per base lot).
+    pub trigger_price: u64,
+    /// Id of one of the seat's stops to pair as one-cancels-other (0 = none).
+    pub oco_with: u64,
+}
+
 /// Arguments of [`Ix::Swap`]. The side travels in the header.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Pod, Zeroable)]
@@ -463,6 +486,16 @@ pub mod build {
     /// [`Ix::RemoveDelegate`] data.
     pub fn remove_delegate(hint: u32, delegate: &[u8; 32]) -> Vec<u8> {
         with(Ix::RemoveDelegate, 0, 0, 0, hint, delegate)
+    }
+
+    /// [`Ix::PlaceStop`] data (direction: 0 above, 1 below).
+    pub fn place_stop(hint: u32, direction: u8, s: &StopArgs) -> Vec<u8> {
+        with(Ix::PlaceStop, direction, 0, 0, hint, bytemuck::bytes_of(s))
+    }
+
+    /// [`Ix::TriggerStops`] data.
+    pub fn trigger_stops(limit: u32) -> Vec<u8> {
+        with(Ix::TriggerStops, 0, 0, 0, limit, &[])
     }
 
     /// [`Ix::CollectFees`] data.

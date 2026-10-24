@@ -1,12 +1,16 @@
 //! Instruction handlers.
 
-use matchbook_engine::{permission, Market, MarketParams, MarketStatus, Side, SwapParams};
+use matchbook_engine::{
+    permission, Market, MarketParams, MarketStatus, Side, StopParams, SwapParams, TriggerDirection,
+};
 use pinocchio::{cpi::Signer, error::ProgramError, AccountView, Address, ProgramResult};
 use pinocchio_token::TokenInterface;
 
 use crate::error::{engine, MatchbookError};
 use crate::events::LogSink;
-use crate::instruction::{CreateMarketArgs, DelegateArgs, Header, Ix, OrderArgs, Reader, SwapArgs};
+use crate::instruction::{
+    CreateMarketArgs, DelegateArgs, Header, Ix, OrderArgs, Reader, StopArgs, SwapArgs,
+};
 use crate::utils::{
     ensure_nodes, mint_decimals, now, require_key, require_market, require_signer, set_return_data,
     token_amount, transfer, vault_seeds,
@@ -39,6 +43,8 @@ pub fn process_instruction(
         Ix::PruneExpired => prune_expired(accounts, h),
         Ix::SetDelegate => set_delegate(accounts, h, r),
         Ix::RemoveDelegate => remove_delegate(accounts, h, r),
+        Ix::PlaceStop => place_stop(accounts, h, r),
+        Ix::TriggerStops => trigger_stops(accounts, h),
     }
 }
 
@@ -551,6 +557,45 @@ fn remove_delegate(accounts: &mut [AccountView], h: Header, r: &mut Reader<'_>) 
         return Err(engine(matchbook_engine::EngineError::NotPermitted));
     }
     m.remove_delegate(a.trader, &delegate).map_err(engine)
+}
+
+fn place_stop(accounts: &mut [AccountView], h: Header, r: &mut Reader<'_>) -> ProgramResult {
+    let [owner, market, ..] = accounts else {
+        return Err(ProgramError::NotEnoughAccountKeys);
+    };
+    require_signer(owner)?;
+    require_market(market)?;
+    let args: StopArgs = r.pod()?;
+    let p = StopParams {
+        trigger_price: args.trigger_price,
+        direction: TriggerDirection::from_u8(h.a).ok_or(MatchbookError::InvalidInstructionData)?,
+        order: args.order.to_params()?,
+        oco_with: args.oco_with,
+    };
+    ensure_nodes(market, owner, 1)?;
+    let mut data = market.try_borrow_mut()?;
+    let mut m = Market::load_mut(&mut data).map_err(engine)?;
+    let a = m
+        .resolve_actor(&owner_bytes(owner), Some(h.hint))
+        .map_err(engine)?;
+    let ts = LazyClock::default().now(&m, p.order.expires_at != 0 || a.expires_at != 0)?;
+    let t = a.require(permission::TRADE, ts).map_err(engine)?;
+    let id = m.place_stop(t, &p, ts).map_err(engine)?;
+    set_return_data(&id.to_le_bytes());
+    Ok(())
+}
+
+fn trigger_stops(accounts: &mut [AccountView], h: Header) -> ProgramResult {
+    let [market, ..] = accounts else {
+        return Err(ProgramError::NotEnoughAccountKeys);
+    };
+    require_market(market)?;
+    let mut data = market.try_borrow_mut()?;
+    let mut m = Market::load_mut(&mut data).map_err(engine)?;
+    let ts = LazyClock::default().now(&m, false)?;
+    m.trigger_stops(ts, h.hint, &mut LogSink::new())
+        .map_err(engine)?;
+    Ok(())
 }
 
 fn prune_expired(accounts: &mut [AccountView], h: Header) -> ProgramResult {

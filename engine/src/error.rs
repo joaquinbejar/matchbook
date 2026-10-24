@@ -59,6 +59,13 @@ pub enum EngineError {
     InvalidDelegate,
     /// A reverse spread must be below 100% and needs an order that rests.
     InvalidReverseSpread,
+    /// A stop needs a trigger price, an order without a quote budget or
+    /// reverse spread, and an OCO partner that is the same seat's unpaired
+    /// stop.
+    InvalidStop,
+    /// The last trade price already meets the trigger: place the order
+    /// directly instead.
+    StopWouldTrigger,
 }
 
 impl fmt::Display for EngineError {

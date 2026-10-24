@@ -53,6 +53,7 @@ mod matching;
 pub mod math;
 mod node;
 mod rbtree;
+mod stops;
 mod types;
 
 pub use error::EngineError;
@@ -60,12 +61,13 @@ pub use events::{EventSink, FillEvent, NoopSink, OrderOutEvent, OutReason, Place
 pub use header::{MarketHeader, MarketStatus, HEADER_SIZE, MARKET_MAGIC};
 pub use market::{market_size, Market, MarketParams, MarketTotals};
 pub use node::{
-    order_id, split_order_id, DelegateLeaf, Node, NodeTag, OrderLeaf, TraderLeaf, MAX_ORDER_SEQ,
-    NIL, NODE_SIZE, ORDER_INDEX_BITS,
+    order_id, split_order_id, DelegateLeaf, Node, NodeTag, OrderLeaf, StopLeaf, TraderLeaf,
+    MAX_ORDER_SEQ, NIL, NODE_SIZE, ORDER_INDEX_BITS,
 };
 pub use types::{
     permission, Actor, BookLevel, OrderParams, OrderType, PlaceOutcome, RestingOrder,
-    SelfTradeBehavior, Side, SwapOutcome, SwapParams, REVERSE_SPREAD_SCALE,
+    SelfTradeBehavior, Side, StopParams, SwapOutcome, SwapParams, TriggerDirection,
+    AUTO_TRIGGER_LIMIT, MAX_STOP_MATCH_LIMIT, REVERSE_SPREAD_SCALE,
 };
 
 /// Result type used across the engine.

@@ -179,7 +179,7 @@ impl EventSink for LogSink {
     fn wants_out(&self, reason: OutReason) -> bool {
         // A filled order is described by its fill (`maker_remaining == 0`)
         // and a cancelled one by the owner's own instruction.
-        matches!(reason, OutReason::Expired | OutReason::SelfTrade)
+        !matches!(reason, OutReason::Filled | OutReason::Cancelled)
     }
     fn on_fill(&mut self, e: &FillEvent) {
         if let Some(b) = self.slot() {

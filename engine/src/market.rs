@@ -4,8 +4,8 @@ use bytemuck::{cast_mut, cast_ref};
 
 use crate::header::{MarketHeader, MarketStatus, HEADER_SIZE, MARKET_MAGIC};
 use crate::node::{
-    DelegateLeaf, Node, NodeTag, OrderLeaf, TraderLeaf, DELEGATE_COUNT_MASK, DELEGATE_COUNT_SHIFT,
-    FLAG_ASK, NIL, NODE_SIZE,
+    DelegateLeaf, Node, NodeTag, OrderLeaf, StopLeaf, TraderLeaf, DELEGATE_COUNT_MASK,
+    DELEGATE_COUNT_SHIFT, FLAG_ASK, NIL, NODE_SIZE,
 };
 use crate::rbtree::{self, Tree};
 use crate::{permission, Actor, BookLevel, EngineError, RestingOrder, Result, Side};
@@ -69,6 +69,8 @@ pub(crate) enum TreeId {
     Bids,
     Asks,
     Traders,
+    StopsAbove,
+    StopsBelow,
 }
 
 impl TreeId {
@@ -131,6 +133,9 @@ impl<'a> Market<'a> {
         h.bids_root = NIL;
         h.asks_root = NIL;
         h.traders_root = NIL;
+        h.stops_above_root = NIL;
+        h.stops_below_root = NIL;
+        h.stop_above_min = u64::MAX;
         h.free_head = NIL;
         h.best_bid = NIL;
         h.best_ask = NIL;
@@ -305,6 +310,8 @@ impl<'a> Market<'a> {
             TreeId::Bids => &mut self.header.bids_root,
             TreeId::Asks => &mut self.header.asks_root,
             TreeId::Traders => &mut self.header.traders_root,
+            TreeId::StopsAbove => &mut self.header.stops_above_root,
+            TreeId::StopsBelow => &mut self.header.stops_below_root,
         };
         Tree {
             nodes: self.nodes,
@@ -319,6 +326,42 @@ impl<'a> Market<'a> {
             return Err(EngineError::OrderNotFound);
         }
         Ok(cast_ref(n))
+    }
+
+    /// Stop `i`.
+    pub fn stop(&self, i: u32) -> Result<&StopLeaf> {
+        let n = self.node(i)?;
+        if !n.is(NodeTag::Stop) {
+            return Err(EngineError::OrderNotFound);
+        }
+        Ok(cast_ref(n))
+    }
+
+    pub(crate) fn stop_mut(&mut self, i: u32) -> Result<&mut StopLeaf> {
+        let n = self.node_mut(i)?;
+        if !n.is(NodeTag::Stop) {
+            return Err(EngineError::OrderNotFound);
+        }
+        Ok(cast_mut(n))
+    }
+
+    /// Order or stop `i` of a seat's list, viewed as an order. Only `trader`,
+    /// `prev` and `next` are meaningful for a stop.
+    pub(crate) fn listed(&self, i: u32) -> Result<&OrderLeaf> {
+        let n = self.node(i)?;
+        if !n.is(NodeTag::Order) && !n.is(NodeTag::Stop) {
+            return Err(EngineError::Corrupted);
+        }
+        Ok(cast_ref(n))
+    }
+
+    /// [`Self::listed`], mutable.
+    pub(crate) fn listed_mut(&mut self, i: u32) -> Result<&mut OrderLeaf> {
+        let n = self.node_mut(i)?;
+        if !n.is(NodeTag::Order) && !n.is(NodeTag::Stop) {
+            return Err(EngineError::Corrupted);
+        }
+        Ok(cast_mut(n))
     }
 
     pub(crate) fn order_mut(&mut self, i: u32) -> Result<&mut OrderLeaf> {
@@ -634,7 +677,7 @@ impl<'a> Market<'a> {
         Ok(())
     }
 
-    /// Visits a trader's orders, newest first.
+    /// Visits a trader's resting orders, newest first.
     pub fn for_each_trader_order(
         &self,
         trader: u32,
@@ -644,34 +687,64 @@ impl<'a> Market<'a> {
         let owner = t.owner;
         let mut i = t.order_head;
         while i != NIL {
-            let o = self.order(i)?;
-            f(i, resting(o, i, owner));
-            i = o.next;
+            let n = self.listed(i)?;
+            if n.tag == NodeTag::Order as u32 {
+                f(i, resting(n, i, owner));
+            }
+            i = n.next;
         }
         Ok(())
     }
 
-    /// Base and quote atoms locked in a trader's resting orders.
-    pub fn locked(&self, trader: u32) -> Result<(u64, u64)> {
-        let mut base = 0u64;
-        let mut quote = 0u64;
-        let mut err = None;
-        self.for_each_trader_order(trader, |_, o| {
-            let r = match o.side {
-                Side::Ask => self.base_for(o.base_lots).and_then(|b| {
-                    base = base.checked_add(b).ok_or(EngineError::Overflow)?;
-                    Ok(())
-                }),
-                Side::Bid => self.quote_for(o.base_lots, o.price).and_then(|q| {
-                    quote = quote.checked_add(q).ok_or(EngineError::Overflow)?;
-                    Ok(())
-                }),
-            };
-            if let Err(e) = r {
-                err = Some(e);
+    /// Visits a trader's stops, newest first.
+    pub fn for_each_trader_stop(
+        &self,
+        trader: u32,
+        mut f: impl FnMut(u32, &StopLeaf),
+    ) -> Result<()> {
+        let mut i = self.trader(trader)?.order_head;
+        while i != NIL {
+            let next = self.listed(i)?.next;
+            if let Ok(s) = self.stop(i) {
+                f(i, s);
             }
-        })?;
-        err.map_or(Ok((base, quote)), Err)
+            i = next;
+        }
+        Ok(())
+    }
+
+    /// Base and quote atoms locked in a trader's resting orders and stops.
+    pub fn locked(&self, trader: u32) -> Result<(u64, u64)> {
+        let (mut base, mut quote) = (0u64, 0u64);
+        let mut i = self.trader(trader)?.order_head;
+        while i != NIL {
+            let n = self.listed(i)?;
+            let (side, amount) = if n.tag == NodeTag::Order as u32 {
+                let side = if n.is_ask() { Side::Ask } else { Side::Bid };
+                (side, self.lock_for(side, n.price(), n.base_lots)?)
+            } else {
+                let s = self.stop(i)?;
+                let side = if s.is_ask() { Side::Ask } else { Side::Bid };
+                (
+                    side,
+                    self.stop_lock(side, s.price, s.base_lots, u32::from(s.match_limit))?,
+                )
+            };
+            match side {
+                Side::Ask => base = base.checked_add(amount).ok_or(EngineError::Overflow)?,
+                Side::Bid => quote = quote.checked_add(amount).ok_or(EngineError::Overflow)?,
+            }
+            i = n.next;
+        }
+        Ok((base, quote))
+    }
+
+    /// Atoms a resting order locks: base for an ask, quote for a bid.
+    pub(crate) fn lock_for(&self, side: Side, price: u64, lots: u64) -> Result<u64> {
+        match side {
+            Side::Ask => self.base_for(lots),
+            Side::Bid => self.quote_for(lots, price),
+        }
     }
 
     pub(crate) fn base_for(&self, lots: u64) -> Result<u64> {
@@ -699,7 +772,24 @@ impl<'a> Market<'a> {
                 Ok(())
             }
         };
+        let above = rbtree::validate(self.nodes, h.stops_above_root)?;
+        let below = rbtree::validate(self.nodes, h.stops_below_root)?;
         bad(bids + asks != h.order_count || traders != h.trader_count + h.delegate_count)?;
+        bad(above + below != h.stop_count)?;
+        let trigger_of = |root: u32, max: bool, none: u64| -> Result<u64> {
+            let i = if max {
+                rbtree::max(self.nodes, root)?
+            } else {
+                rbtree::min(self.nodes, root)?
+            };
+            if i == NIL {
+                Ok(none)
+            } else {
+                Ok(self.stop(i)?.trigger_price())
+            }
+        };
+        bad(h.stop_above_min != trigger_of(h.stops_above_root, false, u64::MAX)?)?;
+        bad(h.stop_below_max != trigger_of(h.stops_below_root, true, 0)?)?;
         bad(h.best_bid != rbtree::max(self.nodes, h.bids_root)?)?;
         bad(h.best_ask != rbtree::min(self.nodes, h.asks_root)?)?;
         let price_of = |i: u32, none: u64| -> Result<u64> {
@@ -724,7 +814,10 @@ impl<'a> Market<'a> {
             i = n.extra;
         }
         bad(free != h.free_list_len)?;
-        bad(free + h.order_count + h.trader_count + h.delegate_count != h.next_unused)?;
+        bad(
+            free + h.order_count + h.stop_count + h.trader_count + h.delegate_count
+                != h.next_unused,
+        )?;
 
         let mut totals = MarketTotals {
             orders: h.order_count,
@@ -733,6 +826,7 @@ impl<'a> Market<'a> {
             ..MarketTotals::default()
         };
         let mut seen_orders = 0u32;
+        let mut seen_stops = 0u32;
         let mut unpartnered = 0u32;
         let mut seen_delegates = 0u32;
         let mut expiring = 0u32;
@@ -768,6 +862,23 @@ impl<'a> Market<'a> {
                 let mut prev = NIL;
                 let mut j = t.order_head;
                 while j != NIL {
+                    if let Ok(st) = self.stop(j) {
+                        bad(st.trader != idx || st.prev != prev || st.base_lots == 0)?;
+                        bad(st.seq() == 0 || st.seq() > h.seq_num)?;
+                        let p = st.partner();
+                        if p != NIL {
+                            let q = self.stop(p)?;
+                            bad(q.partner() != j || q.trader != idx)?;
+                        }
+                        if st.expires_at != 0 {
+                            expiring = expiring.checked_add(1).ok_or(EngineError::Corrupted)?;
+                        }
+                        seen_stops = seen_stops.checked_add(1).ok_or(EngineError::Corrupted)?;
+                        bad(seen_stops > h.stop_count)?;
+                        prev = j;
+                        j = st.next;
+                        continue;
+                    }
                     let o = self.order(j)?;
                     bad(o.trader != idx || o.prev != prev || o.base_lots == 0)?;
                     let side = if o.is_ask() { Side::Ask } else { Side::Bid };
@@ -794,6 +905,7 @@ impl<'a> Market<'a> {
             }
         }
         bad(seen_orders != h.order_count || expiring != h.expiring_orders)?;
+        bad(seen_stops != h.stop_count)?;
         bad(seen_delegates != h.delegate_count)?;
         bad(unpartnered != h.reverse_reserve || self.free_nodes_raw() < h.reverse_reserve)?;
         Ok(totals)

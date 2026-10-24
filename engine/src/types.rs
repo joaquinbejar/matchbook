@@ -195,6 +195,55 @@ impl OrderParams {
     }
 }
 
+/// When a stop triggers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum TriggerDirection {
+    /// When a trade happens at or above the trigger price (stop buys,
+    /// take-profit sells).
+    Above = 0,
+    /// When a trade happens at or below the trigger price (stop-loss sells,
+    /// take-profit buys).
+    Below = 1,
+}
+
+impl TriggerDirection {
+    /// Decodes a wire value.
+    pub const fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(Self::Above),
+            1 => Some(Self::Below),
+            _ => None,
+        }
+    }
+}
+
+/// A stop: an order placed for its seat once the last trade price reaches
+/// `trigger_price`. Its funds are locked from the start, so it cannot fail
+/// for lack of them when it triggers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StopParams {
+    /// Price that triggers the stop.
+    pub trigger_price: u64,
+    /// Which side of `trigger_price` the last trade must reach.
+    pub direction: TriggerDirection,
+    /// The order to place. Its expiry also applies to the stop. Its match
+    /// limit is capped at [`MAX_STOP_MATCH_LIMIT`].
+    pub order: OrderParams,
+    /// Id of another of the seat's stops to pair with: when either triggers,
+    /// the other is cancelled (a bracket of take-profit and stop-loss).
+    /// 0 for none.
+    pub oco_with: u64,
+}
+
+/// Highest match limit of an order placed by a stop, which bounds the
+/// compute a trigger adds to whoever's trade sets it off.
+pub const MAX_STOP_MATCH_LIMIT: u32 = 16;
+
+/// Stops triggered automatically at the end of each trade, at most. Anyone
+/// can trigger more with [`crate::Market::trigger_stops`].
+pub const AUTO_TRIGGER_LIMIT: u32 = 2;
+
 /// Result of [`crate::Market::place_order`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct PlaceOutcome {

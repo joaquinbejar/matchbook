@@ -110,10 +110,20 @@ pub struct MarketHeader {
     /// Free nodes held back for reverse orders without a live partner, so
     /// that each can always flip. Not available to other allocations.
     pub reverse_reserve: u32,
-    /// Padding.
-    pub padding: u32,
+    /// Stops waiting for their trigger.
+    pub stop_count: u32,
+    /// Price of the most recent trade, or 0 before the first.
+    pub last_price: u64,
+    /// Root of the tree of stops that trigger at or above their price.
+    pub stops_above_root: u32,
+    /// Root of the tree of stops that trigger at or below their price.
+    pub stops_below_root: u32,
+    /// Lowest trigger price among stops above, or `u64::MAX` when none.
+    pub stop_above_min: u64,
+    /// Highest trigger price among stops below, or 0 when none.
+    pub stop_below_max: u64,
     /// Reserved for upgrades.
-    pub reserved: [u64; 10],
+    pub reserved: [u64; 6],
 }
 
 const _: () = assert!(core::mem::size_of::<MarketHeader>() == HEADER_SIZE);

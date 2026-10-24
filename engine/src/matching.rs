@@ -221,7 +221,7 @@ impl Market<'_> {
         };
         let edges = self.tree(TreeId::of(side)).insert_with_edges(i, lo, hi)?;
         if head != NIL {
-            self.order_mut(head)?.prev = i;
+            self.listed_mut(head)?.prev = i;
         }
         let h = &mut *self.header;
         match side {
@@ -321,14 +321,7 @@ impl Market<'_> {
             }
         }
         self.tree(TreeId::of(side)).remove(i)?;
-        if prev != NIL {
-            self.order_mut(prev)?.next = next;
-        } else {
-            self.trader_mut(trader)?.order_head = next;
-        }
-        if next != NIL {
-            self.order_mut(next)?.prev = prev;
-        }
+        self.unlink_listed(trader, prev, next)?;
         self.unlock(trader, side, price, lots)?;
         if sink.wants_out(reason) {
             let (seq, client_order_id) = {
@@ -348,6 +341,19 @@ impl Market<'_> {
         }
         self.release(i)?;
         self.header.order_count = self.header.order_count.saturating_sub(1);
+        Ok(())
+    }
+
+    /// Closes the gap in a seat's list left by a removed order or stop.
+    pub(crate) fn unlink_listed(&mut self, trader: u32, prev: u32, next: u32) -> Result<()> {
+        if prev != NIL {
+            self.listed_mut(prev)?.next = next;
+        } else {
+            self.trader_mut(trader)?.order_head = next;
+        }
+        if next != NIL {
+            self.listed_mut(next)?.prev = prev;
+        }
         Ok(())
     }
 
@@ -557,6 +563,7 @@ impl Market<'_> {
         let book = side.opposite();
         let mut t = MatchTotals::default();
         let mut rebates = 0u64;
+        let mut last_price = 0u64;
         let taker_owner = match taker {
             Taker::Seat(s) if wants_fills(sink) => Some(self.trader(s)?.owner),
             _ => None,
@@ -657,6 +664,7 @@ impl Market<'_> {
                 self.remove_order_with::<false>(m, OutReason::Filled, sink)?;
             }
             lots -= fill;
+            last_price = price;
             t.base_lots = add(t.base_lots, fill)?;
             t.quote_atoms = add(t.quote_atoms, quote)?;
             t.fee_atoms = add(t.fee_atoms, fee)?;
@@ -669,6 +677,9 @@ impl Market<'_> {
         h.fees_accrued = add(h.fees_accrued, sub(t.fee_atoms, rebates)?)?;
         h.total_base_lots_traded = h.total_base_lots_traded.saturating_add(t.base_lots);
         h.total_quote_atoms_traded = h.total_quote_atoms_traded.saturating_add(t.quote_atoms);
+        if last_price != 0 {
+            h.last_price = last_price;
+        }
         t.remaining = lots;
         Ok(t)
     }
@@ -695,7 +706,22 @@ impl Market<'_> {
     }
 
     /// Places an order for seat `trader` at unix time `now`.
+    ///
+    /// If the order traded, up to [`crate::AUTO_TRIGGER_LIMIT`] stops whose
+    /// trigger the market has reached are placed afterwards.
     pub fn place_order(
+        &mut self,
+        trader: u32,
+        p: &OrderParams,
+        now: u64,
+        sink: &mut impl EventSink,
+    ) -> Result<PlaceOutcome> {
+        self.place_order_with::<true>(trader, p, now, sink)
+    }
+
+    /// [`Self::place_order`]; with `STOPS == false`, never triggers stops.
+    #[inline(always)]
+    pub(crate) fn place_order_with<const STOPS: bool>(
         &mut self,
         trader: u32,
         p: &OrderParams,
@@ -862,6 +888,11 @@ impl Market<'_> {
             out.rested_price = price;
             out.rested_base_lots = remaining;
         }
+        // Only a trade moves the last price, so a passive order (returned
+        // above) never sets off a stop.
+        if STOPS && self.header.stop_count != 0 {
+            self.run_stops(now, crate::AUTO_TRIGGER_LIMIT, sink)?;
+        }
         Ok(out)
     }
 
@@ -958,8 +989,14 @@ impl Market<'_> {
         sink: &mut impl EventSink,
     ) -> Result<()> {
         self.require_cancellable()?;
-        let i = self.find_order(trader, order_id)?;
-        self.remove_order(i, OutReason::Cancelled, sink)
+        match self.find_order(trader, order_id) {
+            Ok(i) => self.remove_order(i, OutReason::Cancelled, sink),
+            Err(EngineError::OrderNotFound) => {
+                let i = self.find_stop(trader, order_id)?;
+                self.remove_stop(i, OutReason::Cancelled, sink)
+            }
+            Err(e) => Err(e),
+        }
     }
 
     /// Cancels every order of `trader` carrying `client_order_id`. Returns the count.
@@ -969,7 +1006,7 @@ impl Market<'_> {
         client_order_id: u64,
         sink: &mut impl EventSink,
     ) -> Result<u32> {
-        self.cancel_where(trader, sink, |o| o.client_order_id == client_order_id)
+        self.cancel_where(trader, sink, |_, id| id == client_order_id)
     }
 
     /// Cancels every order of `trader`, optionally on one side. Returns the count.
@@ -979,22 +1016,36 @@ impl Market<'_> {
         side: Option<Side>,
         sink: &mut impl EventSink,
     ) -> Result<u32> {
-        self.cancel_where(trader, sink, |o| side.is_none_or(|s| side_of(o) == s))
+        self.cancel_where(trader, sink, |s, _| side.is_none_or(|x| x == s))
     }
 
+    /// Cancels the orders and stops of `trader` for which `pred(side,
+    /// client_order_id)` holds.
     fn cancel_where(
         &mut self,
         trader: u32,
         sink: &mut impl EventSink,
-        pred: impl Fn(&OrderLeaf) -> bool,
+        pred: impl Fn(Side, u64) -> bool,
     ) -> Result<u32> {
         self.require_cancellable()?;
         let mut i = self.trader(trader)?.order_head;
         let mut n = 0u32;
         while i != NIL {
-            let o = *self.order(i)?;
-            if pred(&o) {
-                self.remove_order(i, OutReason::Cancelled, sink)?;
+            let o = *self.listed(i)?;
+            let is_order = o.tag == NodeTag::Order as u32;
+            let client_order_id = if is_order {
+                o.client_order_id
+            } else {
+                self.stop(i)?.client_order_id
+            };
+            // Cancelling a stop only unpairs its OCO partner, so `next` stays
+            // valid.
+            if pred(side_of(&o), client_order_id) {
+                if is_order {
+                    self.remove_order(i, OutReason::Cancelled, sink)?;
+                } else {
+                    self.remove_stop(i, OutReason::Cancelled, sink)?;
+                }
                 n += 1;
             }
             i = o.next;
@@ -1066,6 +1117,9 @@ impl Market<'_> {
             now,
             sink,
         )?;
+        if self.header.stop_count != 0 {
+            self.run_stops(now, crate::AUTO_TRIGGER_LIMIT, sink)?;
+        }
         Ok(SwapOutcome {
             base_lots: m.base_lots,
             base_atoms: self.base_for(m.base_lots)?,

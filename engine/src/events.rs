@@ -14,6 +14,10 @@ pub enum OutReason {
     Expired = 2,
     /// Cancelled by self-trade prevention.
     SelfTrade = 3,
+    /// A stop whose trigger was met; its order follows.
+    Triggered = 4,
+    /// A stop cancelled because its one-cancels-other partner triggered.
+    OcoCancelled = 5,
 }
 
 /// A trade between a resting order and a taker. Borrows the owners from
