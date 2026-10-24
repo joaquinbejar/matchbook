@@ -79,9 +79,6 @@ fn create_market(accounts: &mut [AccountView], r: &mut Reader<'_>) -> ProgramRes
     require_signer(payer)?;
     require_signer(market)?;
     let a: CreateMarketArgs = r.pod()?;
-    if a.reserved != 0 {
-        return Err(MatchbookError::InvalidInstructionData.into());
-    }
     if base_mint.address() == quote_mint.address() {
         return Err(MatchbookError::SameMints.into());
     }
@@ -143,13 +140,15 @@ fn create_market(accounts: &mut [AccountView], r: &mut Reader<'_>) -> ProgramRes
             taker_fee_bps: a.taker_fee_bps,
             maker_rebate_bps: a.maker_rebate_bps,
             host_bump: u32::from(bump),
+            referral_share_bps: u32::from(a.referral_share_bps),
+            flags: u32::from(a.flags),
         },
     )
     .map_err(engine)
 }
 
 fn claim_seat(accounts: &mut [AccountView]) -> ProgramResult {
-    let [payer, owner, market, ..] = accounts else {
+    let [payer, owner, market, rest @ ..] = accounts else {
         return Err(ProgramError::NotEnoughAccountKeys);
     };
     require_signer(owner)?;
@@ -157,6 +156,11 @@ fn claim_seat(accounts: &mut [AccountView]) -> ProgramResult {
     ensure_nodes(market, payer, 1)?;
     let mut data = market.try_borrow_mut()?;
     let mut m = Market::load_mut(&mut data).map_err(engine)?;
+    if m.is_permissioned() {
+        let authority = rest.get(1).ok_or(ProgramError::NotEnoughAccountKeys)?;
+        require_signer(authority)?;
+        require_key(authority, &m.header().authority)?;
+    }
     m.claim_seat(&owner_bytes(owner)).map_err(engine)?;
     Ok(())
 }
@@ -248,13 +252,15 @@ fn withdraw(accounts: &mut [AccountView], h: Header, r: &mut Reader<'_>) -> Prog
 }
 
 fn place_order(accounts: &mut [AccountView], h: Header, r: &mut Reader<'_>) -> ProgramResult {
-    let [owner, market, ..] = accounts else {
+    let [owner, market, rest @ ..] = accounts else {
         return Err(ProgramError::NotEnoughAccountKeys);
     };
     require_signer(owner)?;
     require_market(market)?;
     let hint = h.hint;
-    let p = r.pod::<OrderArgs>()?.to_params()?;
+    let args = r.pod::<OrderArgs>()?;
+    let referrer_seat = args.referrer_seat;
+    let p = args.to_params()?;
     if p.order_type != matchbook_engine::OrderType::ImmediateOrCancel
         && p.order_type != matchbook_engine::OrderType::FillOrKill
     {
@@ -269,7 +275,34 @@ fn place_order(accounts: &mut [AccountView], h: Header, r: &mut Reader<'_>) -> P
     let t = a.require(permission::TRADE, ts).map_err(engine)?;
     let mut s = LogSink::new();
     let out = m.place_order(t, &p, ts, &mut s).map_err(engine)?;
+    if let Some(referrer) = rest.get(1) {
+        pay_referrer(&mut m, referrer, referrer_seat, Some(t), out.fee_atoms)?;
+    }
     set_return_data(&out.order_id.unwrap_or(0).to_le_bytes());
+    Ok(())
+}
+
+/// Credits the seat of `referrer` with its share of a trade's taker fee.
+#[cold]
+#[inline(never)]
+fn pay_referrer(
+    m: &mut Market<'_>,
+    referrer: &AccountView,
+    hint: u32,
+    taker: Option<u32>,
+    taker_fee: u64,
+) -> ProgramResult {
+    if taker_fee == 0 {
+        return Ok(());
+    }
+    let seat = m
+        .resolve_actor(&owner_bytes(referrer), Some(hint))
+        .map_err(engine)?
+        .trader;
+    // No discount for referring yourself.
+    if Some(seat) != taker {
+        m.pay_referrer(seat, taker_fee).map_err(engine)?;
+    }
     Ok(())
 }
 
@@ -368,7 +401,7 @@ fn batch_update(accounts: &mut [AccountView], h: Header, r: &mut Reader<'_>) -> 
 }
 
 fn swap(accounts: &mut [AccountView], h: Header, r: &mut Reader<'_>) -> ProgramResult {
-    let [user, market, user_base, user_quote, base_vault, quote_vault, base_mint, quote_mint, vault_authority, base_tp, quote_tp, ..] =
+    let [user, market, user_base, user_quote, base_vault, quote_vault, base_mint, quote_mint, vault_authority, base_tp, quote_tp, rest @ ..] =
         accounts
     else {
         return Err(ProgramError::NotEnoughAccountKeys);
@@ -404,6 +437,9 @@ fn swap(accounts: &mut [AccountView], h: Header, r: &mut Reader<'_>) -> ProgramR
                 &mut sink,
             )
             .map_err(engine)?;
+        if let Some(referrer) = rest.first() {
+            pay_referrer(&mut m, referrer, a.referrer_seat, None, out.fee_atoms)?;
+        }
         (out, [m.header().host_bump as u8])
     };
     let base_dec = mint_decimals(base_mint, base_tp)?;

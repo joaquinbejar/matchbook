@@ -22,7 +22,8 @@ pub enum Ix {
     /// keypair (created here with `initial_nodes`, at most 10 KiB) or an
     /// account the client already created, owned by this program and zeroed.
     CreateMarket = 0,
-    /// Accounts: payer (s,w), owner (s), market (w), system_program.
+    /// Accounts: payer (s,w), owner (s), market (w), system_program, and on
+    /// a permissioned market the market authority (s).
     ClaimSeat = 1,
     /// Accounts: owner (s), market (w), user_token (w), vault (w), mint, token_program.
     /// Payload: amount u64.
@@ -30,7 +31,8 @@ pub enum Ix {
     /// Accounts: owner (s), market (w), user_token (w), vault (w), mint,
     /// vault_authority, token_program. Payload: amount u64.
     Withdraw = 3,
-    /// Accounts: owner (s,w), market (w), system_program.
+    /// Accounts: owner (s,w), market (w), system_program, optionally a
+    /// referrer with a seat, which earns a share of the taker fee.
     /// Payload: [`OrderArgs`]. Return data: the order id (u64, 0 if
     /// nothing rested).
     PlaceOrder = 4,
@@ -50,8 +52,9 @@ pub enum Ix {
     BatchUpdate = 9,
     /// Accounts: user (s), market (w), user_base (w), user_quote (w),
     /// base_vault (w), quote_vault (w), base_mint, quote_mint, vault_authority,
-    /// base_token_program, quote_token_program. `a`: side (0 buy base,
-    /// 1 sell base). Payload: [`SwapArgs`].
+    /// base_token_program, quote_token_program, optionally a referrer with a
+    /// seat. `a`: side (0 buy base, 1 sell base). Payload: [`SwapArgs`].
+    /// Disabled on permissioned markets.
     Swap = 10,
     /// Accounts: authority (s), market (w), destination (w), quote_vault (w),
     /// quote_mint, vault_authority, token_program.
@@ -247,8 +250,10 @@ pub struct CreateMarketArgs {
     pub maker_rebate_bps: u32,
     /// Nodes to preallocate.
     pub initial_nodes: u32,
-    /// Must be zero.
-    pub reserved: u32,
+    /// Share of the taker fee paid to referrers (bps of the fee).
+    pub referral_share_bps: u16,
+    /// [`matchbook_engine::MARKET_FLAG_PERMISSIONED`] and future flags.
+    pub flags: u16,
     /// Fee collector and status authority.
     pub authority: [u8; 32],
 }
@@ -286,8 +291,9 @@ pub struct OrderArgs {
     /// reverse order re-posts each fill on the other side, this far from
     /// the fill price.
     pub reverse_spread: u32,
-    /// Must be zero.
-    pub reserved2: u32,
+    /// Seat index of the referrer account, if one is passed (a hint: any
+    /// value works, the right one is cheapest).
+    pub referrer_seat: u32,
 }
 
 impl OrderArgs {
@@ -308,7 +314,7 @@ impl OrderArgs {
             expires_at: 0,
             quote_budget: 0,
             reverse_spread: 0,
-            reserved2: 0,
+            referrer_seat: u32::MAX,
         }
     }
 
@@ -373,8 +379,8 @@ pub struct SwapArgs {
     pub min_out: u64,
     /// Max resting orders to touch (0 = default).
     pub match_limit: u32,
-    /// Must be zero.
-    pub reserved: u32,
+    /// Seat index of the referrer account, if one is passed (a hint).
+    pub referrer_seat: u32,
 }
 
 impl SwapArgs {

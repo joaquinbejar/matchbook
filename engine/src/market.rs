@@ -47,6 +47,11 @@ pub struct MarketParams {
     pub maker_rebate_bps: u32,
     /// Opaque value for the host program.
     pub host_bump: u32,
+    /// Share of the taker fee paid to referrers, in basis points of the fee.
+    /// The maker rebate and this share together must fit in the taker fee.
+    pub referral_share_bps: u32,
+    /// [`crate::MARKET_FLAG_PERMISSIONED`] and future flags.
+    pub flags: u32,
 }
 
 /// Totals returned by [`Market::check_invariants`]. The host's vaults must
@@ -110,6 +115,10 @@ impl<'a> Market<'a> {
             || p.min_base_lots == 0
             || p.taker_fee_bps > MAX_FEE_BPS
             || p.maker_rebate_bps > p.taker_fee_bps
+            || p.referral_share_bps > 10_000
+            || u64::from(p.taker_fee_bps) * u64::from(p.referral_share_bps)
+                > u64::from(p.taker_fee_bps - p.maker_rebate_bps) * 10_000
+            || p.flags & !crate::MARKET_FLAG_PERMISSIONED != 0
         {
             return Err(EngineError::InvalidMarketParams);
         }
@@ -130,6 +139,8 @@ impl<'a> Market<'a> {
         h.taker_fee_bps = p.taker_fee_bps;
         h.maker_rebate_bps = p.maker_rebate_bps;
         h.host_bump = p.host_bump;
+        h.referral_share_bps = p.referral_share_bps;
+        h.flags = p.flags;
         h.bids_root = NIL;
         h.asks_root = NIL;
         h.traders_root = NIL;
@@ -196,6 +207,27 @@ impl<'a> Market<'a> {
         } else {
             Err(EngineError::MarketNotActive)
         }
+    }
+
+    /// Whether seats need the authority's approval and swaps are disabled.
+    #[must_use]
+    pub fn is_permissioned(&self) -> bool {
+        self.header.flags & crate::MARKET_FLAG_PERMISSIONED != 0
+    }
+
+    /// Pays seat `referrer` its share of `taker_fee` atoms just charged by
+    /// a trade it referred, out of the market's fees. Returns the share.
+    pub fn pay_referrer(&mut self, referrer: u32, taker_fee: u64) -> Result<u64> {
+        let share =
+            (u128::from(taker_fee) * u128::from(self.header.referral_share_bps) / 10_000) as u64;
+        let share = share.min(self.header.fees_accrued);
+        let t = self.trader_mut(referrer)?;
+        t.quote_free = t
+            .quote_free
+            .checked_add(share)
+            .ok_or(EngineError::Overflow)?;
+        self.header.fees_accrued -= share;
+        Ok(share)
     }
 
     /// Whether an operation needs the current time: true when a resting

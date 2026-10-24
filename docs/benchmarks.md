@@ -6,19 +6,19 @@ established Solana order books, each built from source and run in the same
 
 | Operation | MatchBook | Manifest | Phoenix v1 | OpenBook v2 |
 | --- | ---: | ---: | ---: | ---: |
-| Open a trading account (seat) | **501** | 710 | 16,241 ¹ | 16,914 |
-| Deposit | **1,858** | 3,231 | 19,237 | 14,440 |
-| Limit order, rests on an empty book | **932** | 1,231 | 16,632 | 15,436 |
-| Limit order, rests on a 2,000-order book | **1,267** | 1,881 | 18,332 | 17,256 ² |
-| Post-only order, 2,000-order book | **1,238** | 1,774 | 16,674 | 17,752 ² |
-| Cancel the newest order | **613** | 814 ³ | 9,288 | 5,550 |
-| IOC, 1 fill | **1,642** | 1,850 | 17,041 | 18,419 |
-| IOC, sweeps 5 orders | **7,017** | 7,168 | 24,423 | 35,566 |
-| IOC, sweeps 20 orders | **20,523** | 21,281 | 46,651 | 86,744 |
-| Limit order, 2 fills then rests | **3,449** | 3,483 | 19,824 | 21,723 |
-| Swap from a wallet, no account, 1 fill | **4,461** | 9,031 | 22,181 | 30,610 |
-| Swap from a wallet, no account, 5 fills | **8,461** | 12,011 | 28,535 | 46,336 |
-| Requote: cancel 10 + place 10 | **11,813** | 12,643 | 59,359 ⁴ | 107,768 ⁵ |
+| Open a trading account (seat) | **507** | 710 | 16,241 ¹ | 16,914 |
+| Deposit | **1,860** | 3,231 | 19,237 | 14,440 |
+| Limit order, rests on an empty book | **953** | 1,231 | 16,632 | 15,436 |
+| Limit order, rests on a 2,000-order book | **1,288** | 1,881 | 18,332 | 17,256 ² |
+| Post-only order, 2,000-order book | **1,258** | 1,774 | 16,674 | 17,752 ² |
+| Cancel the newest order | **614** | 814 ³ | 9,288 | 5,550 |
+| IOC, 1 fill | **1,660** | 1,850 | 17,041 | 18,419 |
+| IOC, sweeps 5 orders | **7,035** | 7,168 | 24,423 | 35,566 |
+| IOC, sweeps 20 orders | **20,541** | 21,281 | 46,651 | 86,744 |
+| Limit order, 2 fills then rests | **3,472** | 3,483 | 19,824 | 21,723 |
+| Swap from a wallet, no account, 1 fill | **4,487** | 9,031 | 22,181 | 30,610 |
+| Swap from a wallet, no account, 5 fills | **8,487** | 12,011 | 28,535 | 46,336 |
+| Requote: cancel 10 + place 10 | **11,802** | 12,643 | 59,359 ⁴ | 107,768 ⁵ |
 | Withdraw | **1,738** | 3,455 | 14,770 | 19,118 |
 | Settle makers after fills (crank) | **0** | 0 | 0 | 28,552 per 8 fills ⁶ |
 

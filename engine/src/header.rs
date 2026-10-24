@@ -8,6 +8,11 @@ pub const HEADER_SIZE: usize = 400;
 /// Magic value identifying an initialized market ("MTCHBOOK").
 pub const MARKET_MAGIC: u64 = u64::from_le_bytes(*b"MTCHBOOK");
 
+/// Market flag: seats need the authority's approval and seatless swaps are
+/// disabled, so only approved traders can trade (for example a market in a
+/// regulated asset).
+pub const MARKET_FLAG_PERMISSIONED: u32 = 1;
+
 /// Operational status of a market.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u32)]
@@ -122,8 +127,13 @@ pub struct MarketHeader {
     pub stop_above_min: u64,
     /// Highest trigger price among stops below, or 0 when none.
     pub stop_below_max: u64,
+    /// [`MARKET_FLAG_PERMISSIONED`] and future flags.
+    pub flags: u32,
+    /// Share of the taker fee paid to a trade's referrer, in basis points of
+    /// the fee.
+    pub referral_share_bps: u32,
     /// Reserved for upgrades.
-    pub reserved: [u64; 6],
+    pub reserved: [u64; 5],
 }
 
 const _: () = assert!(core::mem::size_of::<MarketHeader>() == HEADER_SIZE);

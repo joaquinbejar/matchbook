@@ -167,7 +167,8 @@ impl H {
             maker_rebate_bps: args.maker_rebate_bps,
             initial_nodes: args.initial_nodes,
             authority: h.authority.pubkey().to_bytes(),
-            reserved: 0,
+            referral_share_bps: args.referral_share_bps,
+            flags: args.flags,
         });
         let mut ixs = vec![];
         if args.initial_nodes > 100 {
@@ -400,15 +401,25 @@ impl H {
         u: &User,
         s: Swap,
     ) -> Result<TransactionMetadata, FailedTransactionMetadata> {
+        self.swap_with(u, s, None)
+    }
+
+    /// A swap, optionally referred by `referrer` (seat owner, seat index).
+    pub fn swap_with(
+        &mut self,
+        u: &User,
+        s: Swap,
+        referrer: Option<(Address, u32)>,
+    ) -> Result<TransactionMetadata, FailedTransactionMetadata> {
         let a = SwapArgs {
             base_lots: s.base_lots,
             quote_budget: s.quote_budget,
             limit_price: s.limit_price,
             min_out: s.min_out,
             match_limit: s.match_limit,
-            reserved: 0,
+            referrer_seat: referrer.map_or(u32::MAX, |r| r.1),
         };
-        let ix = self.ix(
+        let mut ix = self.ix(
             build::swap(s.side, &a),
             vec![
                 AccountMeta::new_readonly(u.key(), true),
@@ -424,6 +435,9 @@ impl H {
                 AccountMeta::new_readonly(self.quote_tp, false),
             ],
         );
+        if let Some((key, _)) = referrer {
+            ix.accounts.push(AccountMeta::new_readonly(key, false));
+        }
         self.send(&[ix], &[&u.kp])
     }
 
@@ -496,6 +510,8 @@ pub struct CreateMarketArgsLite {
     pub taker_fee_bps: u32,
     pub maker_rebate_bps: u32,
     pub initial_nodes: u32,
+    pub referral_share_bps: u16,
+    pub flags: u16,
 }
 
 pub fn default_market() -> CreateMarketArgsLite {
@@ -506,6 +522,8 @@ pub fn default_market() -> CreateMarketArgsLite {
         taker_fee_bps: 10,
         maker_rebate_bps: 2,
         initial_nodes: 0,
+        referral_share_bps: 0,
+        flags: 0,
     }
 }
 

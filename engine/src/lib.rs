@@ -58,7 +58,7 @@ mod types;
 
 pub use error::EngineError;
 pub use events::{EventSink, FillEvent, NoopSink, OrderOutEvent, OutReason, PlacedEvent};
-pub use header::{MarketHeader, MarketStatus, HEADER_SIZE, MARKET_MAGIC};
+pub use header::{MarketHeader, MarketStatus, HEADER_SIZE, MARKET_FLAG_PERMISSIONED, MARKET_MAGIC};
 pub use market::{market_size, Market, MarketParams, MarketTotals};
 pub use node::{
     order_id, split_order_id, DelegateLeaf, Node, NodeTag, OrderLeaf, StopLeaf, TraderLeaf,

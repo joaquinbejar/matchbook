@@ -66,6 +66,8 @@ pub enum EngineError {
     /// The last trade price already meets the trigger: place the order
     /// directly instead.
     StopWouldTrigger,
+    /// Seatless swaps are disabled on a permissioned market.
+    Permissioned,
 }
 
 impl fmt::Display for EngineError {

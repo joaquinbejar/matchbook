@@ -1099,6 +1099,9 @@ impl Market<'_> {
         sink: &mut impl EventSink,
     ) -> Result<SwapOutcome> {
         self.require_active()?;
+        if self.is_permissioned() {
+            return Err(EngineError::Permissioned);
+        }
         if p.limit_price == 0 {
             return Err(EngineError::InvalidPrice);
         }
