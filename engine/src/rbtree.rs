@@ -219,7 +219,7 @@ impl Tree<'_> {
             (hi, true, EDGE_MAX)
         } else {
             let mut y = NIL;
-            let mut x = *self.root;
+            let mut x = self.finger(lo, hi, khi, klo)?;
             let mut go_right = false;
             while let Some(n) = self.nodes.get(x as usize) {
                 y = x;
@@ -251,6 +251,32 @@ impl Tree<'_> {
         }
         self.insert_fixup(z)?;
         Ok(edges)
+    }
+
+    /// Root of the smallest subtree reachable by climbing from the edge
+    /// nearer (by price) to the key `(khi, klo)` that still contains the
+    /// key's position. Orders cluster near the top of the book, so this is
+    /// usually a few levels instead of a full descent from the root.
+    fn finger(&self, lo: u32, hi: u32, khi: u64, klo: u64) -> Result<u32> {
+        let (Some(l), Some(h)) = (self.nodes.get(lo as usize), self.nodes.get(hi as usize)) else {
+            return Ok(*self.root);
+        };
+        // The key lies between the edges here, so neither subtraction wraps.
+        let from_min = khi.wrapping_sub(l.key_hi) <= h.key_hi.wrapping_sub(khi);
+        let mut x = if from_min { lo } else { hi };
+        loop {
+            let p = self.n(x)?.parent;
+            let Some(pn) = self.nodes.get(p as usize) else {
+                return Ok(x);
+            };
+            // Climbing from the minimum, ancestors on the spine grow; stop
+            // at the first one above the key (and the reverse from the maximum).
+            let key_below_parent = khi < pn.key_hi || (khi == pn.key_hi && klo < pn.key_lo);
+            if key_below_parent == from_min {
+                return Ok(x);
+            }
+            x = p;
+        }
     }
 
     fn insert_fixup(&mut self, mut z: u32) -> Result<()> {
@@ -442,7 +468,9 @@ mod tests {
         (0..n)
             .map(|i| {
                 let mut x: Node = bytemuck::Zeroable::zeroed();
-                x.set_key((i as u128) * 7919 % 10_007);
+                let v = (i as u128) * 7919 % 10_007;
+                // Spread keys over prices (high half) with ties broken below.
+                x.set_key(((v / 50) << 64) | v);
                 x
             })
             .collect()
@@ -470,7 +498,12 @@ mod tests {
                 if insert {
                     let i = free.pop().unwrap();
                     t.nodes[i as usize].flags = 0;
-                    t.insert(i).unwrap();
+                    if x % 2 == 0 {
+                        t.insert(i).unwrap();
+                    } else {
+                        let (lo, hi) = (min(t.nodes, *t.root).unwrap(), max(t.nodes, *t.root).unwrap());
+                        t.insert_with_edges(i, lo, hi).unwrap();
+                    }
                     live.push(i);
                 } else {
                     // Mostly remove the minimum, as matching does.
