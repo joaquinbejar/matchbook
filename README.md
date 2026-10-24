@@ -1,231 +1,136 @@
-# Matchbook
+# MatchBook
 
-[![CI](https://github.com/joaquinbejar/matchbook/actions/workflows/ci.yml/badge.svg)](https://github.com/joaquinbejar/matchbook/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A high-performance, non-custodial Central Limit Order Book (CLOB) on Solana.
+MatchBook is a central limit order book for Solana. It has no crank, costs less compute
+than Manifest, Phoenix and OpenBook v2 on every benchmarked operation, and gives traders
+order types the others do not have: reverse orders that always re-post, stop orders and
+one-cancels-other brackets that fire without keepers, and scoped session keys.
 
-## Overview
+**[Try it in the browser](playground/README.md):** the playground runs the real matching
+engine, compiled to WebAssembly, on a SOL/USDC market.
 
-Matchbook is a decentralized exchange infrastructure that provides:
+## Why MatchBook
 
-- **On-chain order book**: Fully transparent order matching on Solana
-- **Non-custodial**: Users maintain control of their funds at all times
-- **High performance**: Optimized for Solana's parallel transaction processing
-- **Real-time data**: WebSocket streaming for live market updates
-- **Developer-friendly**: REST API, WebSocket API, and SDKs for Rust and TypeScript
+| Compute units per transaction | MatchBook | Manifest | Phoenix | OpenBook v2 |
+| --- | ---: | ---: | ---: | ---: |
+| Open a trading account | **504** | 710 | 16,241 | 16,914 |
+| Limit order on a 2,000-order book | **1,285** | 1,881 | 18,332 | 17,256 |
+| Cancel | **615** | 814 | 9,288 | 5,550 |
+| IOC, 1 fill | **1,660** | 1,850 | 17,041 | 18,419 |
+| Swap from a wallet, 1 fill | **4,487** | 9,031 | 22,181 | 30,610 |
+| Requote: cancel 10, place 10 | **11,799** | 12,643 | 59,359 | 107,768 |
 
-## Architecture
+Every program measured in the same LiteSVM runtime, built from source; MatchBook's
+numbers include its fees. Full table and method: [docs/benchmarks.md](docs/benchmarks.md).
 
-```mermaid
-flowchart TB
-    subgraph Clients["Clients"]
-        C1[Web Apps]
-        C2[Trading Bots]
-        C3[SDKs]
-    end
+| | MatchBook | Manifest | Phoenix | OpenBook v2 |
+| --- | --- | --- | --- | --- |
+| No crank | Yes | Yes | Yes | No: event heap |
+| Anyone can open a seat | Yes | Yes | Authority approves | Yes |
+| Rent paid when creating a market | Header only, grows with use | Header only | Whole book | Whole book |
+| Reverse orders | Yes, flips guaranteed | Yes | No | No |
+| Stop orders and OCO brackets on chain | Yes, no keeper | No | No | No |
+| Session keys with scoped permissions | Yes, up to 8, expiring | No | No | One delegate |
+| Referral fee sharing | Yes | No | No | Yes |
+| Token-2022 mints | Yes | Yes | No | No |
+| Swap from a wallet with no account | Yes | Yes | Yes | Yes |
+| Oracle-pegged orders | No | No | No | Yes |
 
-    subgraph API["API Layer"]
-        REST["REST API<br/>:8080"]
-        WS["WebSocket<br/>:8081"]
-        Direct["Direct<br/>On-chain"]
-    end
+## Features
 
-    subgraph Backend["Backend Services"]
-        Indexer["Indexer<br/>(Geyser)"]
-        Program["Solana Program<br/>(On-chain)"]
-        DB["Database<br/>(TimescaleDB)"]
-    end
+- **Crankless matching.** Makers are paid inside the taker's transaction. There is no event
+  queue to drain and nothing for anyone to run.
+- **One account per market that grows.** A market starts as a 400-byte header plus as many
+  88-byte nodes as you preallocate, and grows by itself when it fills. Seats, orders, stops
+  and delegates all live in it.
+- **Order types.** Limit, post-only, post-only that slides behind the book, immediate or
+  cancel, fill or kill, quote budgets for market buys, expiry times, client order ids and
+  three self-trade behaviors.
+- **Reverse orders.** A reverse order re-posts each fill on the other side of the book, a
+  set distance from the fill price, which turns a ladder of orders into a market-making
+  grid. MatchBook reserves the node for the flip when the order rests, so a flip never
+  fails for lack of space.
+- **Stops and brackets.** A stop locks its funds and waits for a trade at its trigger price.
+  The trade that reaches the trigger places it, so no keeper is needed (a permissionless
+  instruction places any backlog). Two stops can form a one-cancels-other bracket: a
+  stop-loss and a take-profit around a position.
+- **Session keys.** A seat owner can let up to 8 other keys trade or only cancel for it,
+  each with an optional expiry. Delegates can never withdraw.
+- **Swaps without an account.** Any wallet can trade against the book straight from its
+  token accounts, with a minimum-out guard, which is what aggregators need.
+- **Fees.** Taker fee, maker rebate and a referral share of the taker fee for the frontend
+  that brought the trade.
+- **Permissioned markets** when a market authority must approve each seat.
+- **Batch requotes** of up to 32 cancels and 32 orders in one instruction.
 
-    Clients --> REST
-    Clients --> WS
-    Clients --> Direct
+## Repository
 
-    REST --> Indexer
-    REST --> Program
-    WS --> Indexer
-    Direct --> Program
+| Path | What it is |
+| --- | --- |
+| [`engine/`](engine) | The order book: a `no_std`, allocation-free Rust library over a byte buffer. The program, SDKs and playground all run this code. |
+| [`program/`](program) | The Solana program, built with Pinocchio. |
+| [`sdk/`](sdk) | Rust client: instructions, market snapshots, exact quotes and a Jupiter adapter. |
+| [`ts-sdk/`](ts-sdk) | TypeScript client on `@solana/kit`. |
+| [`playground/`](playground) | The engine in WebAssembly with a browser UI. |
+| [`docs/`](docs) | Architecture, instruction reference, SDK guide and benchmarks. |
 
-    Program --> Indexer
-    Indexer --> DB
-```
-
-## Quick Start
-
-### Prerequisites
-
-- Rust 1.75+
-- Solana CLI 1.18+
-- Node.js 18+ (for TypeScript SDK)
-- Docker (for local development)
-
-### Local Development
+## Quick start
 
 ```bash
-# Clone the repository
-git clone https://github.com/joaquinbejar/matchbook.git
-cd matchbook
+# Build the program and run every test
+cargo build-sbf --manifest-path program/Cargo.toml
+cargo test --workspace --all-features
+(cd ts-sdk && npm install && npm test)
 
-# Start local infrastructure
-docker-compose -f Docker/docker-compose.yml up -d
-
-# Build the on-chain program
-cargo build-sbf
-
-# Run tests
-cargo test --all-features
-
-# Deploy to localnet
-solana-test-validator &
-solana program deploy target/deploy/matchbook_program.so
+# Deploy to devnet and create a demo market
+./scripts/deploy.sh devnet
+cd ts-sdk && RPC_URL=https://api.devnet.solana.com npx tsx examples/demo-market.ts
 ```
 
-### Using the SDK
+Trading from TypeScript:
 
-#### Rust
+```ts
+import { OrderType, Side, decodeMarket, placeOrder, swap } from '@matchbook/sdk';
 
-```rust
-use matchbook_sdk::{Client, PlaceOrderParams, Side, OrderType};
+const market = decodeMarket(address, accountData);
+const seat = market.findSeat(owner.address)!.index;
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = Client::new("https://api.matchbook.taunais.com")?;
-    
-    // Get markets
-    let markets = client.get_markets().await?;
-    
-    // Place an order
-    let tx = client.place_order(PlaceOrderParams {
-        market: markets[0].address,
-        side: Side::Bid,
-        price: 100_000_000, // $100.00 in base units
-        quantity: 1_000_000_000, // 1 SOL in lamports
-        order_type: OrderType::Limit,
-        ..Default::default()
-    }).await?;
-    
-    println!("Order placed: {}", tx.signature);
-    Ok(())
-}
-```
-
-#### TypeScript
-
-```typescript
-import { MatchbookClient, Side, OrderType } from '@matchbook/sdk';
-
-const client = new MatchbookClient('https://api.matchbook.taunais.com');
-
-// Get markets
-const markets = await client.getMarkets();
-
-// Place an order
-const tx = await client.placeOrder({
-  market: markets[0].address,
-  side: Side.Bid,
-  price: '100.00',
-  quantity: '1.0',
-  orderType: OrderType.Limit,
+// Rest a post-only bid that flips into an ask 0.2% higher whenever it fills.
+const ix = placeOrder({
+  owner, market: address, seat,
+  order: { side: Side.Bid, price: 149_900n, baseLots: 100n, orderType: OrderType.PostOnly, reverseSpread: 2_000 },
 });
 
-console.log('Order placed:', tx.signature);
+// Quote a swap exactly, then send it with the quote as the minimum out.
+const q = market.quoteSwap({ side: Side.Bid, baseLots: 1_000_000n, quoteBudget: 30_000_000n });
 ```
+
+Quoting from Rust:
+
+```rust
+use matchbook_sdk::{engine::Side, MarketSnapshot};
+
+let snap = MarketSnapshot::new(market, &account_data)?;
+let out = snap.quote_exact_in(Side::Bid, 30_000_000, now)?;
+```
+
+More in [docs/getting-started.md](docs/getting-started.md) and [docs/sdk-guide.md](docs/sdk-guide.md).
 
 ## Documentation
 
-| Document | Description |
-|----------|-------------|
-| [Architecture](docs/architecture.md) | System architecture and design |
-| [Getting Started](docs/getting-started.md) | Step-by-step integration guide |
-| [API Reference](docs/api-reference.md) | REST API documentation |
-| [WebSocket Reference](docs/websocket-reference.md) | WebSocket API documentation |
-| [SDK Guide](docs/sdk-guide.md) | SDK usage for Rust and TypeScript |
-| [Deployment](docs/docker.md) | Docker and Kubernetes deployment |
-| [Monitoring](docs/monitoring.md) | Prometheus and Grafana setup |
-| [FAQ](docs/faq.md) | Frequently asked questions |
+- [Getting started](docs/getting-started.md): build, test, deploy and make a first market.
+- [Architecture](docs/architecture.md): the account layout, matching, reverse orders, stops
+  and how the compute budget is kept low.
+- [Instruction reference](docs/instructions.md): every instruction, its accounts, data and errors.
+- [SDK guide](docs/sdk-guide.md): TypeScript, Rust and Jupiter integration.
+- [Benchmarks](docs/benchmarks.md): the full comparison and how to reproduce it.
 
-## Project Structure
+## Status
 
-```
-matchbook/
-├── program/           # Solana on-chain program
-├── sdk/               # Rust client SDK
-├── ts-sdk/            # TypeScript client SDK
-├── indexer/           # Geyser-based indexer service
-├── api/               # REST and WebSocket API server
-├── crank/             # Order matching crank service
-├── k8s/               # Kubernetes manifests
-├── monitoring/        # Prometheus and Grafana configs
-└── docs/              # Documentation
-```
-
-## Crates
-
-| Crate | Description |
-|-------|-------------|
-| `matchbook_program` | On-chain Solana program |
-| `matchbook_sdk` | Rust client SDK |
-| `matchbook_types` | Shared types and utilities |
-
-## API Endpoints
-
-### REST API
-
-| Endpoint | Description |
-|----------|-------------|
-| `GET /v1/markets` | List all markets |
-| `GET /v1/markets/{address}/orderbook` | Get order book snapshot |
-| `GET /v1/markets/{address}/trades` | Get recent trades |
-| `POST /v1/tx/place-order` | Build place order transaction |
-| `POST /v1/tx/cancel-order` | Build cancel order transaction |
-
-### WebSocket Channels
-
-| Channel | Description |
-|---------|-------------|
-| `book` | Order book updates |
-| `trades` | Trade stream |
-| `ticker` | Price ticker |
-| `orders` | User order updates (authenticated) |
-
-## Contributing
-
-We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
-
-### Development Workflow
-
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feature/my-feature`
-3. Make your changes
-4. Run tests: `cargo test --all-features`
-5. Run lints: `cargo clippy --all-targets --all-features -- -D warnings`
-6. Submit a pull request
-
-## Security
-
-For security concerns, please see [SECURITY.md](SECURITY.md) or email security@matchbook.taunais.com.
+MatchBook has not been audited. Use it on devnet, and on mainnet only with funds you can
+afford to lose, until an audit is published.
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-See [GitHub Issues](https://github.com/joaquinbejar/matchbook/issues) for detailed progress.
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch: `git checkout -b M[N]/issue-[NUM]-description`
-3. Follow the [Rust coding guidelines](.internalDoc/09-rust-guidelines.md)
-4. Run `make pre-push` before committing
-5. Submit a pull request
-
-## Contact
-
-- **Author**: Joaquín Béjar García
-- **Email**: jb@taunais.com
-- **Telegram**: [@joaquin_bejar](https://t.me/joaquin_bejar)
-- **Repository**: https://github.com/joaquinbejar/matchbook
-
-## License
-
-This project is licensed under the MIT License. See [LICENSE](./LICENSE) for details.
+MIT. See [LICENSE](LICENSE).

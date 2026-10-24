@@ -10,9 +10,8 @@
 use std::cell::RefCell;
 
 use matchbook_engine::{
-    market_size, EventSink, FillEvent, Market, MarketParams, OrderOutEvent, OrderParams,
-    OrderType, PlacedEvent, SelfTradeBehavior, Side, StopParams, SwapParams, TriggerDirection,
-    NODE_SIZE,
+    market_size, EventSink, FillEvent, Market, MarketParams, OrderOutEvent, OrderParams, OrderType,
+    PlacedEvent, SelfTradeBehavior, Side, StopParams, SwapParams, TriggerDirection, NODE_SIZE,
 };
 
 /// Nodes added each time the market runs low.
@@ -367,19 +366,23 @@ pub extern "C" fn mb_swap(side: f64, lots: f64, quote_budget: f64, limit_price: 
 /// Places stops whose trigger was reached. Returns how many.
 #[no_mangle]
 pub extern "C" fn mb_trigger_stops(limit: f64) -> f64 {
-    with_market(|m, now, rec, _| match m.trigger_stops(now, limit as u32, rec) {
-        Ok(n) => f64::from(n),
-        Err(e) => err(e),
-    })
+    with_market(
+        |m, now, rec, _| match m.trigger_stops(now, limit as u32, rec) {
+            Ok(n) => f64::from(n),
+            Err(e) => err(e),
+        },
+    )
 }
 
 /// Removes expired orders. Returns how many.
 #[no_mangle]
 pub extern "C" fn mb_prune(limit: f64) -> f64 {
-    with_market(|m, now, rec, _| match m.prune_expired(now, limit as u32, rec) {
-        Ok(n) => f64::from(n),
-        Err(e) => err(e),
-    })
+    with_market(
+        |m, now, rec, _| match m.prune_expired(now, limit as u32, rec) {
+            Ok(n) => f64::from(n),
+            Err(e) => err(e),
+        },
+    )
 }
 
 /// Writes up to `depth` levels per side: n_bids, n_asks, then (price,
@@ -456,7 +459,12 @@ pub extern "C" fn mb_balances(trader: f64) -> f64 {
         let (Ok(t), Ok((bl, ql))) = (m.trader(i), m.locked(i)) else {
             return -1.0;
         };
-        out.extend_from_slice(&[t.base_free as f64, t.quote_free as f64, bl as f64, ql as f64]);
+        out.extend_from_slice(&[
+            t.base_free as f64,
+            t.quote_free as f64,
+            bl as f64,
+            ql as f64,
+        ]);
         0.0
     })
 }

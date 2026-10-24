@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0-beta.1] - 2026-10-24
+
+A redesign: a crankless order book in one growable account, with a new program, SDKs and
+playground. Not compatible with 0.x markets.
+
+### Added
+- `matchbook-engine`: a `no_std` order book over a byte buffer, with red-black trees in a
+  node pool, cached book edges and a model test against a reference implementation.
+- Crankless matching: makers are settled inside the taker's instruction.
+- Order types: limit, post-only, post-only slide, IOC, fill or kill, quote budgets, expiry,
+  client order ids, self-trade behaviors, batch updates of up to 32 cancels and 32 orders.
+- Reverse orders with a reserved node, so flips never fail for lack of space.
+- Stop orders and one-cancels-other brackets placed by the trades that reach them, plus a
+  permissionless `TriggerStops`.
+- Session keys: up to 8 delegates per seat with trade or cancel permissions and expiry.
+- Seatless swaps with a minimum-out guard, referral fee sharing and permissioned markets.
+- Token-2022 support through `transfer_checked`.
+- Rust SDK with exact quotes and a Jupiter `Amm` adapter; TypeScript SDK on `@solana/kit`.
+- WebAssembly playground, deploy script and a demo-market example.
+- Benchmarks against Manifest, Phoenix v1 and OpenBook v2.
+
+### Removed
+- The Anchor program, crank, indexer, REST and WebSocket services and their deployment files.
+
 ## [0.2.0] - 2026-09-16
 
 ### Added

@@ -161,8 +161,11 @@ pub(crate) fn rent_exempt_minimum(len: usize) -> Result<u64, ProgramError> {
     get_sysvar(&mut d, &RENT_ID, 0)?;
     let (rate, threshold) = d.split_at(8);
     let rate = u64::from_le_bytes(rate.try_into().map_err(|_| ProgramError::InvalidArgument)?);
-    let threshold =
-        u64::from_le_bytes(threshold.try_into().map_err(|_| ProgramError::InvalidArgument)?);
+    let threshold = u64::from_le_bytes(
+        threshold
+            .try_into()
+            .map_err(|_| ProgramError::InvalidArgument)?,
+    );
     let base = (128 + len as u64)
         .checked_mul(rate)
         .ok_or(ProgramError::ArithmeticOverflow)?;
