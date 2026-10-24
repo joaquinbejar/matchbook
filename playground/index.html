@@ -158,7 +158,7 @@ td.no { color: var(--muted); }
     <p class="lede">A SOL/USDC market running the <b>real MatchBook matching engine</b>, compiled to WebAssembly from the same Rust code the Solana program runs. Every order below goes through the code that runs on chain: no crank, reverse orders that re-post themselves, and stops that fire on the trade that reaches them.</p>
     <div class="chips">
       <span class="chip">Crankless: makers settle inside the taker's transaction</span>
-      <span class="chip">953 CU to rest an order</span>
+      <span class="chip">950 CU to rest an order</span>
       <span class="chip">Stops and OCO brackets without keepers</span>
       <span class="chip ok" id="inv">Invariants checked after every action</span>
     </div>
@@ -241,14 +241,14 @@ td.no { color: var(--muted); }
         <table>
           <thead><tr><th>Compute units per transaction</th><th class="n">MatchBook</th><th class="n">Manifest</th><th class="n">Phoenix</th><th class="n">OpenBook v2</th></tr></thead>
           <tbody>
-            <tr><td>Open a trading account</td><td class="n win">507</td><td class="n">710</td><td class="n">16,241</td><td class="n">16,914</td></tr>
+            <tr><td>Open a trading account</td><td class="n win">504</td><td class="n">710</td><td class="n">16,241</td><td class="n">16,914</td></tr>
             <tr><td>Deposit</td><td class="n win">1,860</td><td class="n">3,231</td><td class="n">19,237</td><td class="n">14,440</td></tr>
-            <tr><td>Limit order, 2,000-order book</td><td class="n win">1,288</td><td class="n">1,881</td><td class="n">18,332</td><td class="n">17,256</td></tr>
-            <tr><td>Cancel</td><td class="n win">614</td><td class="n">814</td><td class="n">9,288</td><td class="n">5,550</td></tr>
+            <tr><td>Limit order, 2,000-order book</td><td class="n win">1,285</td><td class="n">1,881</td><td class="n">18,332</td><td class="n">17,256</td></tr>
+            <tr><td>Cancel</td><td class="n win">615</td><td class="n">814</td><td class="n">9,288</td><td class="n">5,550</td></tr>
             <tr><td>IOC, 1 fill</td><td class="n win">1,660</td><td class="n">1,850</td><td class="n">17,041</td><td class="n">18,419</td></tr>
             <tr><td>IOC, sweeps 20 orders</td><td class="n win">20,541</td><td class="n">21,281</td><td class="n">46,651</td><td class="n">86,744</td></tr>
             <tr><td>Wallet swap, 1 fill</td><td class="n win">4,487</td><td class="n">9,031</td><td class="n">22,181</td><td class="n">30,610</td></tr>
-            <tr><td>Requote: cancel 10, place 10</td><td class="n win">11,802</td><td class="n">12,643</td><td class="n">59,359</td><td class="n">107,768</td></tr>
+            <tr><td>Requote: cancel 10, place 10</td><td class="n win">11,799</td><td class="n">12,643</td><td class="n">59,359</td><td class="n">107,768</td></tr>
             <tr><td>Withdraw</td><td class="n win">1,738</td><td class="n">3,455</td><td class="n">14,770</td><td class="n">19,118</td></tr>
           </tbody>
         </table>

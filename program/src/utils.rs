@@ -4,7 +4,7 @@ use matchbook_engine::Market;
 use pinocchio::{
     cpi::{Seed, Signer},
     error::ProgramError,
-    sysvars::{rent::Rent, Sysvar},
+    sysvars::{get_sysvar, rent::RENT_ID, Sysvar},
     AccountView, Address, ProgramResult, Resize,
 };
 use pinocchio_token::instructions::TransferChecked;
@@ -134,7 +134,7 @@ pub(crate) fn ensure_nodes(
         return Ok(());
     }
     let new_len = market.data_len() + extra;
-    let rent = Rent::get()?.try_minimum_balance(new_len)?;
+    let rent = rent_exempt_minimum(new_len)?;
     let have = market.lamports();
     if rent > have {
         require_signer(payer)?;
@@ -146,6 +146,33 @@ pub(crate) fn ensure_nodes(
         .invoke()?;
     }
     market.resize(new_len)
+}
+
+/// Lamports that make an account of `len` bytes rent exempt.
+///
+/// Reads the whole rent sysvar: `lamports_per_byte_year`, then the exemption
+/// threshold as an f64 (2.0 until SIMD-0194, 1.0 after). Pinocchio's `Rent`
+/// reads only the first field, which asks for half the rent on clusters still
+/// at 2.0 and makes account creation fail there.
+pub(crate) fn rent_exempt_minimum(len: usize) -> Result<u64, ProgramError> {
+    const ONE: u64 = 0x3ff0_0000_0000_0000;
+    const TWO: u64 = 0x4000_0000_0000_0000;
+    let mut d = [0u8; 16];
+    get_sysvar(&mut d, &RENT_ID, 0)?;
+    let (rate, threshold) = d.split_at(8);
+    let rate = u64::from_le_bytes(rate.try_into().map_err(|_| ProgramError::InvalidArgument)?);
+    let threshold =
+        u64::from_le_bytes(threshold.try_into().map_err(|_| ProgramError::InvalidArgument)?);
+    let base = (128 + len as u64)
+        .checked_mul(rate)
+        .ok_or(ProgramError::ArithmeticOverflow)?;
+    match threshold {
+        ONE => Ok(base),
+        TWO => base.checked_mul(2).ok_or(ProgramError::ArithmeticOverflow),
+        // Any other threshold: compute in floating point, rounding up (no
+        // `ceil` without std).
+        bits => Ok((base as f64 * f64::from_bits(bits)) as u64 + 1),
+    }
 }
 
 /// Current unix time as u64.

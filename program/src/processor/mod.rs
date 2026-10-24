@@ -101,13 +101,13 @@ fn create_market(accounts: &mut [AccountView], r: &mut Reader<'_>) -> ProgramRes
     // created here.
     if !market.owned_by(&crate::ID) {
         let space = matchbook_engine::market_size(a.initial_nodes as usize) as u64;
-        pinocchio_system::instructions::CreateAccount::with_minimum_balance(
-            payer,
-            market,
+        pinocchio_system::instructions::CreateAccount {
+            from: payer,
+            to: market,
+            lamports: crate::utils::rent_exempt_minimum(space as usize)?,
             space,
-            &crate::ID,
-            None,
-        )?
+            owner: &crate::ID,
+        }
         .invoke()?;
     }
     for (vault, mint, tp) in [
