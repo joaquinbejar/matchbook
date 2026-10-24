@@ -115,7 +115,14 @@ pub struct OrderParams {
     pub quote_budget: Option<u64>,
     /// Maximum resting orders to touch while matching (bounds compute).
     pub match_limit: u32,
+    /// Makes the resting part a reverse order: each fill re-posts the filled
+    /// size on the other side, this many parts per million away from the
+    /// fill price (0 = an ordinary order). See [`REVERSE_SPREAD_SCALE`].
+    pub reverse_spread: u32,
 }
+
+/// Parts per million: a reverse spread of 1,000 is 0.1%.
+pub const REVERSE_SPREAD_SCALE: u32 = 1_000_000;
 
 impl OrderParams {
     /// Default match limit.
@@ -134,6 +141,7 @@ impl OrderParams {
             expires_at: 0,
             quote_budget: None,
             match_limit: Self::DEFAULT_MATCH_LIMIT,
+            reverse_spread: 0,
         }
     }
 
@@ -176,6 +184,13 @@ impl OrderParams {
     #[must_use]
     pub const fn with_match_limit(mut self, n: u32) -> Self {
         self.match_limit = n;
+        self
+    }
+
+    /// Makes the order a reverse order with `spread` parts per million.
+    #[must_use]
+    pub const fn with_reverse(mut self, spread: u32) -> Self {
+        self.reverse_spread = spread;
         self
     }
 }

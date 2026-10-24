@@ -14,7 +14,7 @@ use crate::node::{
 use crate::rbtree::{EDGE_MAX, EDGE_MIN};
 use crate::{
     EngineError, OrderParams, OrderType, PlaceOutcome, Result, SelfTradeBehavior, Side,
-    SwapOutcome, SwapParams,
+    SwapOutcome, SwapParams, REVERSE_SPREAD_SCALE,
 };
 
 const BPS: u128 = 10_000;
@@ -145,6 +145,7 @@ impl Market<'_> {
 
     /// Locks the funds of a resting order, inserts it and returns its id.
     #[allow(clippy::too_many_arguments)]
+    #[inline(always)]
     fn insert_order(
         &mut self,
         trader: u32,
@@ -153,6 +154,7 @@ impl Market<'_> {
         base_lots: u64,
         client_order_id: u64,
         expires_at: u64,
+        reverse_spread: u32,
         sink: &mut impl EventSink,
     ) -> Result<u64> {
         let seq = self
@@ -205,7 +207,7 @@ impl Market<'_> {
             trader,
             prev: NIL,
             next: head,
-            kind: 0,
+            reverse_spread,
             base_lots,
             client_order_id,
             expires_at,
@@ -277,7 +279,7 @@ impl Market<'_> {
         reason: OutReason,
         sink: &mut impl EventSink,
     ) -> Result<()> {
-        let (side, prev, next, trader, price, lots, expiring) = {
+        let (side, prev, next, trader, price, lots, special) = {
             let o = self.order(i)?;
             (
                 side_of(o),
@@ -286,11 +288,12 @@ impl Market<'_> {
                 o.trader,
                 o.price(),
                 o.base_lots,
-                o.expires_at != 0,
+                // Expiring or reverse: both rare.
+                o.expires_at | u64::from(o.reverse_spread) != 0,
             )
         };
-        if expiring {
-            self.header.expiring_orders = self.header.expiring_orders.saturating_sub(1);
+        if special {
+            self.forget_special(i)?;
         }
         let (best, worst) = match side {
             Side::Ask => (self.header.best_ask, self.header.worst_ask),
@@ -411,6 +414,132 @@ impl Market<'_> {
         Ok(fillable)
     }
 
+    /// Updates the counters an expiring or reverse order `i` takes part in,
+    /// as it is removed. A reverse order's node reservation is settled.
+    #[cold]
+    #[inline(never)]
+    fn forget_special(&mut self, i: u32) -> Result<()> {
+        let (expiring, reverse) = {
+            let o = self.order(i)?;
+            (o.expires_at != 0, o.reverse_spread != 0)
+        };
+        if expiring {
+            self.header.expiring_orders = self.header.expiring_orders.saturating_sub(1);
+        }
+        if !reverse {
+            return Ok(());
+        }
+        let partner = self.partner(i)?;
+        if partner == NIL {
+            // Its reserved node is no longer needed.
+            self.header.reverse_reserve -= 1;
+        } else {
+            // The partner is left alone: the node freed here becomes its
+            // reserve.
+            self.order_mut(partner)?.set_partner(NIL);
+            self.header.reverse_reserve += 1;
+        }
+        Ok(())
+    }
+
+    /// The live partner of reverse order `i`, or [`NIL`].
+    fn partner(&self, i: u32) -> Result<u32> {
+        let p = self.order(i)?.partner();
+        if p == NIL {
+            return Ok(NIL);
+        }
+        // Links are always mutual; anything else is corruption.
+        if self.order(p).map_err(|_| EngineError::Corrupted)?.partner() != i {
+            return Err(EngineError::Corrupted);
+        }
+        Ok(p)
+    }
+
+    /// Re-posts `lots` just filled from reverse order `x` (at `price`, owned
+    /// by `maker`) on `side`, the other side of the book. If `x` already has
+    /// a partner there, the lots are added to it, keeping its price and
+    /// place in the queue; otherwise a partner is created `spread` parts per
+    /// million away from `price`, on the node `x` holds in reserve. Either
+    /// way the maker was just paid for the fill, which covers the funds the
+    /// partner needs. Must run before `x` is removed.
+    #[allow(clippy::too_many_arguments)]
+    #[cold]
+    #[inline(never)]
+    fn reverse<S: EventSink>(
+        &mut self,
+        x: u32,
+        maker: u32,
+        side: Side,
+        price: u64,
+        lots: u64,
+        spread: u32,
+        sink: &mut S,
+    ) -> Result<()> {
+        let y = self.partner(x)?;
+        let (id, new_price, client_order_id, expires_at) = if y != NIL {
+            let y_price = self.order(y)?.price();
+            let amount = match side {
+                Side::Ask => self.base_for(lots)?,
+                Side::Bid => self.quote_for(lots, y_price)?,
+            };
+            let t = self.trader_mut(maker)?;
+            match side {
+                Side::Ask => t.base_free = sub(t.base_free, amount)?,
+                Side::Bid => t.quote_free = sub(t.quote_free, amount)?,
+            }
+            let o = self.order_mut(y)?;
+            o.base_lots = add(o.base_lots, lots)?;
+            (order_id(o.seq, y), y_price, o.client_order_id, o.expires_at)
+        } else {
+            let scale = u64::from(REVERSE_SPREAD_SCALE);
+            let new_price = match side {
+                // Buy back below the sale price, rounding down.
+                Side::Bid => crate::math::mul(price, scale - u64::from(spread)).map(|v| v / scale),
+                // Sell above the purchase price, rounding up.
+                Side::Ask => {
+                    crate::math::mul(price, scale + u64::from(spread)).map(|v| v.div_ceil(scale))
+                }
+            };
+            let Some(new_price) = new_price.filter(|&p| p != 0) else {
+                // Out of range: the proceeds stay in the maker's balance.
+                return Ok(());
+            };
+            let (client_order_id, expires_at) = {
+                let o = self.order(x)?;
+                (o.client_order_id, o.expires_at)
+            };
+            // The partner takes the node `x` held in reserve.
+            self.header.reverse_reserve -= 1;
+            let id = self.insert_order(
+                maker,
+                side,
+                new_price,
+                lots,
+                client_order_id,
+                expires_at,
+                spread,
+                sink,
+            )?;
+            let y = crate::node::split_order_id(id).1;
+            self.order_mut(y)?.set_partner(x);
+            self.order_mut(x)?.set_partner(y);
+            (id, new_price, client_order_id, expires_at)
+        };
+        if S::REVERSED {
+            let owner = self.trader(maker)?.owner;
+            sink.on_reversed(&PlacedEvent {
+                owner,
+                order_id: id,
+                client_order_id,
+                side,
+                price: new_price,
+                base_lots: lots,
+                expires_at,
+            });
+        }
+        Ok(())
+    }
+
     /// Core matching loop. The caller settles the taker's side.
     #[allow(clippy::too_many_arguments)]
     fn match_book(
@@ -501,10 +630,10 @@ impl Market<'_> {
             }
             rebates = add(rebates, rebate)?;
             let remaining = maker_lots - fill;
-            let (seq, client_order_id) = {
+            let (seq, client_order_id, reverse_spread) = {
                 let o = self.order_mut(m)?;
                 o.base_lots = remaining;
-                (o.seq, o.client_order_id)
+                (o.seq, o.client_order_id, o.reverse_spread)
             };
             if wants_fills(sink) {
                 sink.on_fill(&FillEvent {
@@ -520,6 +649,9 @@ impl Market<'_> {
                     maker_rebate: rebate,
                     maker_remaining: remaining,
                 });
+            }
+            if reverse_spread != 0 {
+                self.reverse(m, maker, side, price, fill, reverse_spread, sink)?;
             }
             if remaining == 0 {
                 self.remove_order_with::<false>(m, OutReason::Filled, sink)?;
@@ -585,6 +717,11 @@ impl Market<'_> {
         {
             return Err(EngineError::BudgetRequiresIoc);
         }
+        if p.reverse_spread != 0
+            && (p.reverse_spread >= REVERSE_SPREAD_SCALE || !p.order_type.rests())
+        {
+            return Err(EngineError::InvalidReverseSpread);
+        }
         let (base_free, quote_free) = {
             let t = self.trader(trader)?;
             (t.base_free, t.quote_free)
@@ -630,15 +767,7 @@ impl Market<'_> {
             }
             let mut out = PlaceOutcome::default();
             if p.order_type.rests() {
-                let id = self.insert_order(
-                    trader,
-                    p.side,
-                    p.price,
-                    p.base_lots,
-                    p.client_order_id,
-                    p.expires_at,
-                    sink,
-                )?;
+                let id = self.rest(trader, p, p.price, p.base_lots, sink)?;
                 out.order_id = Some(id);
                 out.rested_price = p.price;
                 out.rested_base_lots = p.base_lots;
@@ -649,7 +778,7 @@ impl Market<'_> {
         // Fail before matching if the order could not rest afterwards. (On the
         // passive path above, allocation fails before anything changes.)
         if p.order_type.rests() {
-            self.require_space(1)?;
+            self.require_space(1 + u32::from(p.reverse_spread != 0))?;
         }
 
         // Resolve post-only pricing against the first live opposite order.
@@ -728,20 +857,64 @@ impl Market<'_> {
             && remaining > 0
             && (!reaches || self.can_rest(p.side, price, now)?)
         {
-            let id = self.insert_order(
-                trader,
-                p.side,
-                price,
-                remaining,
-                p.client_order_id,
-                p.expires_at,
-                sink,
-            )?;
+            let id = self.rest(trader, p, price, remaining, sink)?;
             out.order_id = Some(id);
             out.rested_price = price;
             out.rested_base_lots = remaining;
         }
         Ok(out)
+    }
+
+    /// Rests the unfilled part of `p`.
+    #[inline(always)]
+    fn rest(
+        &mut self,
+        trader: u32,
+        p: &OrderParams,
+        price: u64,
+        lots: u64,
+        sink: &mut impl EventSink,
+    ) -> Result<u64> {
+        if p.reverse_spread != 0 {
+            return self.rest_reverse(trader, p, price, lots, sink);
+        }
+        self.insert_order(
+            trader,
+            p.side,
+            price,
+            lots,
+            p.client_order_id,
+            p.expires_at,
+            0,
+            sink,
+        )
+    }
+
+    /// Rests a reverse order, also reserving a node for the partner its
+    /// first fill creates, so that the flip cannot fail for lack of space.
+    #[cold]
+    #[inline(never)]
+    fn rest_reverse(
+        &mut self,
+        trader: u32,
+        p: &OrderParams,
+        price: u64,
+        lots: u64,
+        sink: &mut impl EventSink,
+    ) -> Result<u64> {
+        self.require_space(2)?;
+        let id = self.insert_order(
+            trader,
+            p.side,
+            price,
+            lots,
+            p.client_order_id,
+            p.expires_at,
+            p.reverse_spread,
+            sink,
+        )?;
+        self.header.reverse_reserve += 1;
+        Ok(id)
     }
 
     /// An order may rest only if it no longer crosses a live opposite order

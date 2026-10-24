@@ -57,6 +57,8 @@ pub enum EngineError {
     DelegateExpired,
     /// A delegate cannot be the seat's owner, and needs known permissions.
     InvalidDelegate,
+    /// A reverse spread must be below 100% and needs an order that rests.
+    InvalidReverseSpread,
 }
 
 impl fmt::Display for EngineError {

@@ -178,17 +178,46 @@ impl<'a> Reader<'a> {
         self.pod()
     }
 
-    /// Whether any [`OrderArgs`] following `skip` u64 values carries an
-    /// expiry. Peeks without consuming.
+    /// Looks over the [`OrderArgs`] following `skip` u64 values without
+    /// consuming them.
     #[allow(clippy::chunks_exact_to_as_chunks)]
-    pub fn any_expiry_after(&self, skip: usize) -> bool {
+    pub fn scan_orders(&self, skip: usize) -> OrderScan {
         let rest = self.data.get(skip.saturating_mul(8)..).unwrap_or_default();
-        rest.chunks_exact(OrderArgs::LEN)
-            .any(|c| match bytemuck::try_from_bytes::<OrderArgs>(c) {
-                Ok(o) => o.expires_at != 0,
-                Err(_) => bytemuck::pod_read_unaligned::<OrderArgs>(c).expires_at != 0,
-            })
+        let read = |c: &[u8]| match bytemuck::try_from_bytes::<OrderArgs>(c) {
+            Ok(o) => (o.expires_at, o.reverse_spread),
+            Err(_) => {
+                let o = bytemuck::pod_read_unaligned::<OrderArgs>(c);
+                (o.expires_at, o.reverse_spread)
+            }
+        };
+        let (mut expiry, mut any_reverse) = (0u64, 0u32);
+        for c in rest.chunks_exact(OrderArgs::LEN) {
+            let (e, r) = read(c);
+            expiry |= e;
+            any_reverse |= r;
+        }
+        // Counting is slower than the scan above; only reverse orders pay it.
+        let reverse = if any_reverse == 0 {
+            0
+        } else {
+            rest.chunks_exact(OrderArgs::LEN)
+                .filter(|c| read(c).1 != 0)
+                .count() as u32
+        };
+        OrderScan {
+            any_expiry: expiry != 0,
+            reverse,
+        }
     }
+}
+
+/// What [`Reader::scan_orders`] finds in a batch's orders.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct OrderScan {
+    /// Whether any order expires.
+    pub any_expiry: bool,
+    /// How many are reverse orders.
+    pub reverse: u32,
 }
 
 /// Arguments of [`Ix::CreateMarket`].
@@ -242,6 +271,12 @@ pub struct OrderArgs {
     pub expires_at: u64,
     /// Quote budget for IOC bids (0 = none).
     pub quote_budget: u64,
+    /// Reverse spread in parts per million (0 = an ordinary order). A
+    /// reverse order re-posts each fill on the other side, this far from
+    /// the fill price.
+    pub reverse_spread: u32,
+    /// Must be zero.
+    pub reserved2: u32,
 }
 
 impl OrderArgs {
@@ -261,6 +296,8 @@ impl OrderArgs {
             client_order_id: 0,
             expires_at: 0,
             quote_budget: 0,
+            reverse_spread: 0,
+            reserved2: 0,
         }
     }
 
@@ -282,6 +319,7 @@ impl OrderArgs {
             } else {
                 self.match_limit
             },
+            reverse_spread: self.reverse_spread,
         })
     }
 }

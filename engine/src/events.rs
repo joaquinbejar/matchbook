@@ -91,6 +91,8 @@ pub trait EventSink {
     const FILLS: bool = true;
     /// Whether [`EventSink::on_placed`] is used.
     const PLACED: bool = true;
+    /// Whether [`EventSink::on_reversed`] is used.
+    const REVERSED: bool = true;
     /// Whether [`EventSink::on_out`] is used for orders leaving for `reason`.
     fn wants_out(&self, _reason: OutReason) -> bool {
         true
@@ -101,6 +103,9 @@ pub trait EventSink {
     fn on_out(&mut self, _e: &OrderOutEvent) {}
     /// An order started resting.
     fn on_placed(&mut self, _e: &PlacedEvent) {}
+    /// A reverse order was filled and re-posted the filled size on the other
+    /// side as a new order.
+    fn on_reversed(&mut self, _e: &PlacedEvent) {}
 }
 
 /// Discards every event.
@@ -110,6 +115,7 @@ pub struct NoopSink;
 impl EventSink for NoopSink {
     const FILLS: bool = false;
     const PLACED: bool = false;
+    const REVERSED: bool = false;
     fn wants_out(&self, _reason: OutReason) -> bool {
         false
     }

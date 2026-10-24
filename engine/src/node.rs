@@ -116,7 +116,9 @@ pub struct OrderLeaf {
     pub right: u32,
     /// Tree link.
     pub parent: u32,
-    /// Unused.
+    /// For a reverse order, the node index of the order it flips into (its
+    /// partner on the other side) plus one, or 0 if it has none. 0 for other
+    /// orders. Use [`OrderLeaf::partner`].
     pub extra: u32,
     /// Low half of the book key.
     pub key_lo: u64,
@@ -128,8 +130,8 @@ pub struct OrderLeaf {
     pub prev: u32,
     /// Next order of the same trader.
     pub next: u32,
-    /// Reserved for order kinds (reverse, pegged).
-    pub kind: u32,
+    /// Reverse spread in parts per million, or 0 for an ordinary order.
+    pub reverse_spread: u32,
     /// Remaining quantity in base lots.
     pub base_lots: u64,
     /// Client-supplied id.
@@ -151,6 +153,18 @@ impl OrderLeaf {
     #[inline]
     pub fn is_ask(&self) -> bool {
         self.flags & FLAG_ASK != 0
+    }
+
+    /// The reverse order this one flips into, or [`NIL`].
+    #[inline]
+    pub fn partner(&self) -> u32 {
+        self.extra.wrapping_sub(1)
+    }
+
+    /// Links the partner (or [`NIL`] to unlink).
+    #[inline]
+    pub fn set_partner(&mut self, i: u32) {
+        self.extra = i.wrapping_add(1);
     }
 
     /// True if the order is dead at `now`.

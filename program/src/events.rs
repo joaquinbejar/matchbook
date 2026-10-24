@@ -15,7 +15,7 @@
 //! of the instruction that emitted them, and each fill's quote amount, taker
 //! fee and maker rebate follow from the market's lot sizes and fee rates.
 
-use matchbook_engine::{EventSink, FillEvent, OrderOutEvent, OutReason};
+use matchbook_engine::{EventSink, FillEvent, OrderOutEvent, OutReason, PlacedEvent};
 
 /// Event tags.
 pub mod tag {
@@ -23,8 +23,9 @@ pub mod tag {
     pub const FILL: u8 = 1;
     /// An order left the book without trading. See [`super::OUT_LEN`].
     pub const OUT: u8 = 2;
-    /// Reserved: placements are reported through return data.
-    pub const PLACED: u8 = 3;
+    /// A reverse order was filled and re-posted on the other side. See
+    /// [`super::REVERSED_LEN`].
+    pub const REVERSED: u8 = 3;
     /// Reserved.
     pub const TAKE: u8 = 4;
 }
@@ -35,6 +36,10 @@ pub const FILL_LEN: usize = 1 + 32 + 8 * 5;
 /// Out: tag, owner (32), order id, client order id, side (1), price,
 /// base lots, reason (1).
 pub const OUT_LEN: usize = 1 + 32 + 8 + 8 + 1 + 8 + 8 + 1;
+
+/// Reversed: tag, owner (32), new order id, client order id, side (1),
+/// price, base lots, expiry.
+pub const REVERSED_LEN: usize = 1 + 32 + 8 + 8 + 1 + 8 + 8 + 8;
 
 /// Bytes buffered before an early flush. Large enough for 13 fills.
 const CAPACITY: usize = 960;
@@ -90,6 +95,18 @@ fn write_out(out: &mut [u8; OUT_LEN], e: &OrderOutEvent) {
     b.u64(e.price);
     b.u64(e.base_lots);
     b.u8(e.reason as u8);
+}
+
+#[inline(always)]
+fn write_reversed(out: &mut [u8; REVERSED_LEN], e: &PlacedEvent) {
+    let mut b = Enc::new(out, tag::REVERSED);
+    b.put(&e.owner);
+    b.u64(e.order_id);
+    b.u64(e.client_order_id);
+    b.u8(e.side as u8);
+    b.u64(e.price);
+    b.u64(e.base_lots);
+    b.u64(e.expires_at);
 }
 
 /// Encodes a fill event.
@@ -174,6 +191,11 @@ impl EventSink for LogSink {
             if let Some(b) = self.slot() {
                 write_out(b, e);
             }
+        }
+    }
+    fn on_reversed(&mut self, e: &PlacedEvent) {
+        if let Some(b) = self.slot() {
+            write_reversed(b, e);
         }
     }
 }

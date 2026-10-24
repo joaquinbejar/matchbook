@@ -107,8 +107,13 @@ pub struct MarketHeader {
     pub best_bid_price: u64,
     /// Price of the best ask, or `u64::MAX` when there is none.
     pub best_ask_price: u64,
+    /// Free nodes held back for reverse orders without a live partner, so
+    /// that each can always flip. Not available to other allocations.
+    pub reverse_reserve: u32,
+    /// Padding.
+    pub padding: u32,
     /// Reserved for upgrades.
-    pub reserved: [u64; 11],
+    pub reserved: [u64; 10],
 }
 
 const _: () = assert!(core::mem::size_of::<MarketHeader>() == HEADER_SIZE);

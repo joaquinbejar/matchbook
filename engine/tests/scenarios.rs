@@ -483,3 +483,51 @@ fn tree_stress_thousands_of_orders() {
     m.check_invariants().unwrap();
     assert_eq!(m.header().order_count as usize, ids.len());
 }
+
+#[test]
+fn reverse_order_flips_even_in_a_full_market() {
+    // Two seats and two order nodes.
+    let mut fx = Fx::new(4, 0, 0);
+    let a = fx.seat(1, 10 * BASE_LOT, 0);
+    let b = fx.seat(2, 0, 1_000_000);
+    let mut ev = Rec::default();
+    let ask = OrderParams::limit(Side::Ask, 100, 10).with_reverse(10_000);
+    fx.m().place_order(a, &ask, 0, &mut ev).unwrap();
+    // The second node is held for the flip, so nothing else fits.
+    assert_eq!(
+        fx.m()
+            .place_order(b, &OrderParams::limit(Side::Bid, 90, 1), 0, &mut ev),
+        Err(EngineError::OutOfSpace)
+    );
+    fx.check();
+
+    let ioc =
+        |lots| OrderParams::limit(Side::Bid, 100, lots).with_type(OrderType::ImmediateOrCancel);
+    fx.m().place_order(b, &ioc(3), 0, &mut ev).unwrap();
+    let book = |fx: &mut Fx, side| {
+        let m = fx.m();
+        let i = if side == Side::Bid {
+            m.best_bid()
+        } else {
+            m.best_ask()
+        };
+        let o = m.order(i).unwrap();
+        (
+            o.price(),
+            o.base_lots,
+            m.next_order(side, i).unwrap() == NIL,
+        )
+    };
+    assert_eq!(book(&mut fx, Side::Ask), (100, 7, true));
+    assert_eq!(book(&mut fx, Side::Bid), (99, 3, true));
+    fx.check();
+
+    // Filling the rest grows the same bid; the ask's node is free again but
+    // reserved for the bid's own flip.
+    fx.m().place_order(b, &ioc(7), 0, &mut ev).unwrap();
+    assert_eq!(fx.m().best_ask(), NIL);
+    assert_eq!(book(&mut fx, Side::Bid), (99, 10, true));
+    assert_eq!(fx.m().free_nodes(), 0);
+    let t = fx.check();
+    assert_eq!(t.orders, 1);
+}

@@ -27,6 +27,9 @@ struct MOrder {
     lots: u64,
     coid: u64,
     exp: u64,
+    rev: u32,
+    /// The reverse order this one flips into, by sequence number.
+    partner: Option<u64>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -53,8 +56,14 @@ fn crosses(taker: Side, mp: u64, limit: u64) -> bool {
 }
 
 impl Model {
+    /// Free nodes, less one held for each reverse order without a partner.
     fn free_nodes(&self) -> u32 {
-        self.capacity - TRADERS as u32 - self.orders.len() as u32
+        let reserved = self
+            .orders
+            .iter()
+            .filter(|o| o.rev != 0 && o.partner.is_none())
+            .count();
+        self.capacity - TRADERS as u32 - self.orders.len() as u32 - reserved as u32
     }
     /// Indices of `side` orders in priority order.
     fn book(&self, side: Side) -> Vec<usize> {
@@ -77,9 +86,21 @@ impl Model {
             Side::Bid => self.quote[o.trader] += o.lots * o.price * QLS,
         }
     }
-    fn remove(&mut self, seq: u64) -> MOrder {
+    /// Takes an order off the book without unlocking it, unlinking its partner.
+    fn take(&mut self, seq: u64) -> MOrder {
         let i = self.orders.iter().position(|o| o.seq == seq).unwrap();
         let o = self.orders.remove(i);
+        if let Some(ps) = o.partner {
+            self.orders
+                .iter_mut()
+                .find(|q| q.seq == ps)
+                .unwrap()
+                .partner = None;
+        }
+        o
+    }
+    fn remove(&mut self, seq: u64) -> MOrder {
+        let o = self.take(seq);
         self.unlock(&o);
         o
     }
@@ -162,8 +183,41 @@ impl Model {
                 }
             }
             self.fees += tf - rb;
+            if o.rev != 0 {
+                let rside = o.side.opposite();
+                let lock = |md: &mut Self, price: u64| match rside {
+                    Side::Bid => md.quote[o.trader] -= f * price * QLS,
+                    Side::Ask => md.base[o.trader] -= f * BLS,
+                };
+                if let Some(ps) = o.partner {
+                    // Grow the existing partner, keeping its price and place.
+                    let j = self.orders.iter().position(|q| q.seq == ps).unwrap();
+                    let pp = self.orders[j].price;
+                    lock(self, pp);
+                    self.orders[j].lots += f;
+                } else {
+                    let scale = 1_000_000u64;
+                    let np = match rside {
+                        Side::Bid => o.price * (scale - u64::from(o.rev)) / scale,
+                        Side::Ask => (o.price * (scale + u64::from(o.rev))).div_ceil(scale),
+                    };
+                    if np != 0 {
+                        lock(self, np);
+                        self.seq += 1;
+                        self.orders.push(MOrder {
+                            seq: self.seq,
+                            side: rside,
+                            price: np,
+                            lots: f,
+                            partner: Some(o.seq),
+                            ..o.clone()
+                        });
+                        self.orders[i].partner = Some(self.seq);
+                    }
+                }
+            }
             if f == o.lots {
-                self.orders.remove(i);
+                self.take(o.seq);
             } else {
                 self.orders[i].lots -= f;
             }
@@ -194,11 +248,14 @@ impl Model {
             return Err(EngineError::BudgetRequiresIoc);
         }
         let ml = p.match_limit.max(1);
-        let takes = !matches!(p.order_type, OrderType::PostOnly | OrderType::PostOnlySlide);
         let rests = matches!(
             p.order_type,
             OrderType::Limit | OrderType::PostOnly | OrderType::PostOnlySlide
         );
+        if p.reverse_spread != 0 && (p.reverse_spread >= 1_000_000 || !rests) {
+            return Err(EngineError::InvalidReverseSpread);
+        }
+        let takes = !matches!(p.order_type, OrderType::PostOnly | OrderType::PostOnlySlide);
         let budget = match p.side {
             Side::Ask => {
                 if self.base[t] < p.base_lots * BLS {
@@ -232,7 +289,7 @@ impl Model {
                 }
             },
         };
-        if rests && self.free_nodes() < 1 {
+        if rests && self.free_nodes() < 1 + u32::from(p.reverse_spread != 0) {
             return Err(EngineError::OutOfSpace);
         }
         let mut price = p.price;
@@ -324,6 +381,8 @@ impl Model {
                 lots: remaining,
                 coid: p.client_order_id,
                 exp: p.expires_at,
+                rev: p.reverse_spread,
+                partner: None,
             });
             out.order_id = Some(self.seq);
             out.rested_price = price;
@@ -346,6 +405,7 @@ enum Op {
         budget: Option<u64>,
         ml: u32,
         coid: u64,
+        rev: u32,
     },
     Cancel {
         t: usize,
@@ -388,8 +448,8 @@ enum Op {
 
 fn op() -> impl Strategy<Value = Op> {
     prop_oneof![
-        8 => (0..TRADERS, any::<bool>(), 1u64..30, 1u64..12, 0u8..5, 0u8..3, proptest::option::of(1u64..40), proptest::option::of(0u64..20_000), 1u32..8, 0u64..4)
-            .prop_map(|(t, side, price, lots, ty, stp, exp, budget, ml, coid)| Op::Place { t, side, price, lots, ty, stp, exp, budget, ml, coid }),
+        8 => (0..TRADERS, any::<bool>(), 1u64..30, 1u64..12, 0u8..5, 0u8..3, proptest::option::of(1u64..40), proptest::option::of(0u64..20_000), 1u32..8, 0u64..4, prop_oneof![3 => Just(0u32), 2 => 1u32..400_000, 1 => 999_000u32..1_000_001])
+            .prop_map(|(t, side, price, lots, ty, stp, exp, budget, ml, coid, rev)| Op::Place { t, side, price, lots, ty, stp, exp, budget, ml, coid, rev }),
         2 => (0..TRADERS, 0usize..6).prop_map(|(t, nth)| Op::Cancel { t, nth }),
         1 => (0..TRADERS, 0u64..4).prop_map(|(t, coid)| Op::CancelCoid { t, coid }),
         1 => (0..TRADERS, proptest::option::of(any::<bool>())).prop_map(|(t, side)| Op::CancelAll { t, side }),
@@ -496,7 +556,7 @@ proptest! {
             }
             let mut m = Market::load_mut(&mut data).unwrap();
             match op {
-                Op::Place { t, side, price, lots, ty, stp, exp, budget, ml, coid } => {
+                Op::Place { t, side, price, lots, ty, stp, exp, budget, ml, coid, rev } => {
                     let side = if side { Side::Bid } else { Side::Ask };
                     let p = OrderParams {
                         side, price, base_lots: lots,
@@ -506,6 +566,7 @@ proptest! {
                         expires_at: exp.map_or(0, |e| now + e),
                         quote_budget: budget,
                         match_limit: ml,
+                        reverse_spread: rev,
                     };
                     // Hosts skip the clock when nothing can expire; results must not change.
                     let eng_now = if m.needs_clock(p.expires_at != 0) { now } else { 0 };
@@ -603,6 +664,14 @@ proptest! {
                     prop_assert_eq!(n, removed);
                 }
                 Op::Grow(_) => unreachable!(),
+            }
+            // Learn the ids of orders the engine placed on its own (reverse orders).
+            for side in [Side::Bid, Side::Ask] {
+                let mut i = if side == Side::Bid { m.best_bid() } else { m.best_ask() };
+                while i != NIL {
+                    ids.entry(m.order(i).unwrap().seq).or_insert(order_id(m.order(i).unwrap().seq, i));
+                    i = m.next_order(side, i).unwrap();
+                }
             }
             let totals = m.check_invariants();
             prop_assert!(totals.is_ok(), "invariants: {:?}", totals);

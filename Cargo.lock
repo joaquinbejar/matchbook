@@ -1539,6 +1539,7 @@ dependencies = [
 name = "matchbook-program"
 version = "1.0.0-beta.1"
 dependencies = [
+ "base64",
  "bytemuck",
  "litesvm",
  "litesvm-token",

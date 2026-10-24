@@ -65,7 +65,7 @@ pub use node::{
 };
 pub use types::{
     permission, Actor, BookLevel, OrderParams, OrderType, PlaceOutcome, RestingOrder,
-    SelfTradeBehavior, Side, SwapOutcome, SwapParams,
+    SelfTradeBehavior, Side, SwapOutcome, SwapParams, REVERSE_SPREAD_SCALE,
 };
 
 /// Result type used across the engine.

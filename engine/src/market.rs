@@ -204,6 +204,12 @@ impl<'a> Market<'a> {
     /// Nodes that can be allocated without growing the buffer.
     #[must_use]
     pub fn free_nodes(&self) -> u32 {
+        self.free_nodes_raw()
+            .saturating_sub(self.header.reverse_reserve)
+    }
+
+    /// Free nodes, including those reserved for reverse orders.
+    pub(crate) fn free_nodes_raw(&self) -> u32 {
         let tail = (self.nodes.len() as u32).saturating_sub(self.header.next_unused);
         self.header.free_list_len.saturating_add(tail)
     }
@@ -212,6 +218,31 @@ impl<'a> Market<'a> {
     #[must_use]
     pub fn bytes_to_grow(&self, needed: u32) -> usize {
         needed.saturating_sub(self.free_nodes()) as usize * NODE_SIZE
+    }
+
+    /// [`Market::bytes_to_grow`] for a market buffer, reading only its
+    /// header.
+    pub fn bytes_to_grow_in(data: &[u8], needed: u32) -> Result<usize> {
+        let (h, rest) = data
+            .split_at_checked(HEADER_SIZE)
+            .ok_or(EngineError::InvalidAccountData)?;
+        let h: &MarketHeader =
+            bytemuck::try_from_bytes(h).map_err(|_| EngineError::InvalidAccountData)?;
+        if h.magic != MARKET_MAGIC {
+            return Err(EngineError::InvalidAccountData);
+        }
+        // Usually there is room; check that without dividing.
+        let used = u64::from(h.next_unused) + u64::from(h.reverse_reserve) + u64::from(needed);
+        let fits = used.saturating_sub(u64::from(h.free_list_len)) * NODE_SIZE as u64;
+        if fits <= rest.len() as u64 && used < u64::from(NIL - 1) {
+            return Ok(0);
+        }
+        let capacity = (rest.len() / NODE_SIZE).min((NIL - 1) as usize) as u32;
+        let free = capacity
+            .saturating_sub(h.next_unused)
+            .saturating_add(h.free_list_len)
+            .saturating_sub(h.reverse_reserve);
+        Ok(needed.saturating_sub(free) as usize * NODE_SIZE)
     }
 
     pub(crate) fn require_space(&self, needed: u32) -> Result<()> {
@@ -223,6 +254,9 @@ impl<'a> Market<'a> {
     }
 
     pub(crate) fn alloc(&mut self) -> Result<u32> {
+        if self.header.reverse_reserve != 0 && self.free_nodes() == 0 {
+            return Err(EngineError::OutOfSpace);
+        }
         let i = if self.header.free_head != NIL {
             let i = self.header.free_head;
             let n = self.node(i)?;
@@ -699,6 +733,7 @@ impl<'a> Market<'a> {
             ..MarketTotals::default()
         };
         let mut seen_orders = 0u32;
+        let mut unpartnered = 0u32;
         let mut seen_delegates = 0u32;
         let mut expiring = 0u32;
         for idx in 0..h.next_unused {
@@ -738,6 +773,16 @@ impl<'a> Market<'a> {
                     let side = if o.is_ask() { Side::Ask } else { Side::Bid };
                     bad(order_key(side, o.price(), o.seq) != n_key(self.node(j)?))?;
                     bad(o.seq == 0 || o.seq > h.seq_num)?;
+                    if o.reverse_spread == 0 {
+                        bad(o.extra != 0)?;
+                    } else if o.partner() == NIL {
+                        unpartnered += 1;
+                    } else {
+                        // Mutual, same seat and spread, opposite sides.
+                        let q = self.order(o.partner())?;
+                        bad(q.partner() != j || q.trader != idx)?;
+                        bad(q.reverse_spread != o.reverse_spread || q.is_ask() == o.is_ask())?;
+                    }
                     seen_orders = seen_orders.checked_add(1).ok_or(EngineError::Corrupted)?;
                     if o.expires_at != 0 {
                         expiring = expiring.checked_add(1).ok_or(EngineError::Corrupted)?;
@@ -750,6 +795,7 @@ impl<'a> Market<'a> {
         }
         bad(seen_orders != h.order_count || expiring != h.expiring_orders)?;
         bad(seen_delegates != h.delegate_count)?;
+        bad(unpartnered != h.reverse_reserve || self.free_nodes_raw() < h.reverse_reserve)?;
         Ok(totals)
     }
 }

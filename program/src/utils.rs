@@ -127,11 +127,9 @@ pub(crate) fn ensure_nodes(
     payer: &AccountView,
     needed: u32,
 ) -> ProgramResult {
-    let extra = {
-        let mut data = market.try_borrow_mut()?;
-        let m = Market::load_mut(&mut data).map_err(engine)?;
-        m.bytes_to_grow(needed)
-    };
+    // From the header alone: cheaper than loading the market here and again
+    // in the caller.
+    let extra = Market::bytes_to_grow_in(&market.try_borrow()?, needed).map_err(engine)?;
     if extra == 0 {
         return Ok(());
     }

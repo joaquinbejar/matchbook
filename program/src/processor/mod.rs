@@ -252,7 +252,7 @@ fn place_order(accounts: &mut [AccountView], h: Header, r: &mut Reader<'_>) -> P
     if p.order_type != matchbook_engine::OrderType::ImmediateOrCancel
         && p.order_type != matchbook_engine::OrderType::FillOrKill
     {
-        ensure_nodes(market, owner, 1)?;
+        ensure_nodes(market, owner, 1 + u32::from(p.reverse_spread != 0))?;
     }
     let mut data = market.try_borrow_mut()?;
     let mut m = Market::load_mut(&mut data).map_err(engine)?;
@@ -312,10 +312,12 @@ fn batch_update(accounts: &mut [AccountView], h: Header, r: &mut Reader<'_>) -> 
     if n_cancels > MAX_BATCH || n_orders > MAX_BATCH {
         return Err(MatchbookError::TooManyItems.into());
     }
+    let scan = r.scan_orders(usize::from(n_cancels));
     if n_orders > 0 {
-        ensure_nodes(market, owner, u32::from(n_orders))?;
+        // A reverse order also reserves a node for its partner.
+        ensure_nodes(market, owner, u32::from(n_orders) + scan.reverse)?;
     }
-    let any_expiry = r.any_expiry_after(usize::from(n_cancels));
+    let any_expiry = scan.any_expiry;
     let mut data = market.try_borrow_mut()?;
     let mut m = Market::load_mut(&mut data).map_err(engine)?;
     let a = m
