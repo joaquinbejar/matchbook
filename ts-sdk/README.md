@@ -1,203 +1,77 @@
 # @matchbook/sdk
 
-TypeScript SDK for the Matchbook Central Limit Order Book (CLOB) on Solana.
+TypeScript SDK for [MatchBook](../README.md), a crankless central limit order book on Solana.
+Built on [`@solana/kit`](https://github.com/anza-xyz/kit).
 
-## Installation
+- **Instructions** for every program instruction, returned as kit `Instruction`s.
+- **Market decoding**: the book by order or by level, seats, stops and delegates from one
+  account fetch.
+- **Exact swap quotes**: `quoteSwap` replays the program's matching fill by fill, fees and
+  rounding included, so what you quote is what executes.
+- **Events**: fills, stops triggering and reverse orders flipping, decoded from transaction
+  logs.
 
 ```bash
-npm install @matchbook/sdk
+npm install @matchbook/sdk @solana/kit
 ```
 
-## Quick Start
+## Read the book
 
-### HTTP Client
+```ts
+import { address, createSolanaRpc } from '@solana/kit';
+import { Side, decodeMarket } from '@matchbook/sdk';
 
-```typescript
-import { MatchbookClient } from '@matchbook/sdk';
+const rpc = createSolanaRpc('https://api.devnet.solana.com');
+const market = address('...');
+const { value } = await rpc.getAccountInfo(market, { encoding: 'base64' }).send();
+const view = decodeMarket(market, Buffer.from(value!.data[0], 'base64'));
 
-const client = new MatchbookClient({
-  baseUrl: 'https://api.matchbook.taunais.com/v1',
-  apiKey: 'your-api-key', // Optional
-});
-
-// Get all markets
-const markets = await client.getMarkets();
-
-// Get order book
-const orderbook = await client.getOrderbook('ABC123...', 20);
-
-// Get user orders
-const orders = await client.getOrders('9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM');
-
-// Build a place order transaction
-const tx = await client.buildPlaceOrderTx({
-  market: 'ABC123...',
-  side: 'bid',
-  price: '105.50',
-  quantity: '100',
-  orderType: 'limit',
-});
+view.levels(Side.Ask, 10); // [{ price, baseLots, orders }, ...] best first
+view.header.lastPrice;
+view.findSeat(myWallet);   // { index, baseFree, quoteFree }
 ```
 
-### WebSocket Client
+Prices are integers in quote lots per base lot; `view.priceToAtoms(price)` converts one to
+quote atoms per base atom.
 
-```typescript
-import { MatchbookWsClient } from '@matchbook/sdk';
+## Trade
 
-const ws = new MatchbookWsClient({
-  wsUrl: 'wss://ws.matchbook.taunais.com/v1/stream',
-  apiKey: 'your-api-key', // Required for order updates
-});
+```ts
+import { CancelSide, OrderType, Side, TriggerDirection, batchUpdate, placeOrder, placeStop } from '@matchbook/sdk';
 
-await ws.connect();
+const seat = view.findSeat(owner.address)!.index; // a hint that makes lookups cheapest
 
-// Subscribe to order book updates
-const bookSubId = ws.subscribeBook('ABC123...', (data) => {
-  if (data.type === 'book_snapshot') {
-    console.log('Full book:', data.bids, data.asks);
-  } else {
-    console.log('Book update:', data.bids, data.asks);
-  }
-});
+// A post-only bid.
+placeOrder({ owner, market, seat, order: { side: Side.Bid, price: 99_900n, baseLots: 10n, orderType: OrderType.PostOnly } });
 
-// Subscribe to trades
-const tradeSubId = ws.subscribeTrades('ABC123...', (trade) => {
-  console.log('Trade:', trade.price, trade.quantity, trade.side);
-});
+// A market maker's requote: cancel everything, place new quotes, atomically.
+batchUpdate({ owner, market, seat, cancelAll: CancelSide.Both, orders: [/* ... */] });
 
-// Subscribe to your order updates (requires authentication)
-const orderSubId = ws.subscribeOrders((order) => {
-  console.log('Order update:', order.orderId, order.status);
-});
+// A reverse order: every fill re-posts on the other side 0.2% away.
+placeOrder({ owner, market, seat, order: { side: Side.Ask, price: 100_000n, baseLots: 10n, reverseSpread: 2_000 } });
 
-// Unsubscribe
-ws.unsubscribe(bookSubId);
-
-// Disconnect
-ws.disconnect();
+// A bracket: stop-loss and take-profit, one cancels the other.
+placeStop({ owner, market, seat, direction: TriggerDirection.Below, triggerPrice: 95_000n,
+  order: { side: Side.Ask, price: 94_000n, baseLots: 10n, orderType: OrderType.ImmediateOrCancel } });
 ```
 
-## API Reference
+`owner` can be the seat's owner or a delegate set with `setDelegate` (a session key that can
+trade but never withdraw).
 
-### Types
+## Swap from a wallet
 
-#### Core Types
-
-```typescript
-type Price = string;      // Price as string for precision
-type Quantity = string;   // Quantity as string for precision
-type Side = 'bid' | 'ask';
-type OrderType = 'limit' | 'postOnly' | 'ioc' | 'fok';
-type TimeInForce = 'gtc' | 'ioc' | 'fok' | 'postOnly';
-type OrderStatus = 'open' | 'partiallyFilled' | 'filled' | 'cancelled' | 'expired';
+```ts
+const q = view.quoteSwap({ side: Side.Bid, baseLots: 1_000n, quoteBudget: 5_000_000n });
+swap({ user, accounts, userBase, userQuote, side: Side.Bid, baseLots: 1_000n,
+  quoteBudget: 5_000_000n, limitPrice: 101_000n, minOut: q.baseAtoms,
+  referrer: { owner: myAppWallet } }); // earns the market's referral share of the fee
 ```
 
-#### Entity Types
+## Tests
 
-- `Market` - Market configuration and state
-- `Order` - Order details
-- `Trade` - Trade record
-- `BookLevel` - Aggregated price level
-- `OrderBook` - Full order book with bids/asks
-- `Balance` - User balance
+The tests run the compiled program in [LiteSVM](https://github.com/LiteSVM/litesvm):
 
-### HTTP Client Methods
-
-#### Market Data
-
-- `getMarkets()` - Get all markets
-- `getMarket(address)` - Get market by address
-- `getOrderbook(market, depth?)` - Get order book
-- `getTrades(market, options?)` - Get recent trades
-
-#### User Data
-
-- `getOrders(owner, market?)` - Get user orders
-- `getUserTrades(owner, market?)` - Get user trades
-- `getBalances(owner)` - Get user balances
-
-#### Transaction Building
-
-- `buildPlaceOrderTx(params)` - Build place order transaction
-- `buildCancelOrderTx(params)` - Build cancel order transaction
-- `buildDepositTx(params)` - Build deposit transaction
-- `buildWithdrawTx(params)` - Build withdraw transaction
-
-### WebSocket Client Methods
-
-- `connect()` - Connect to WebSocket server
-- `disconnect()` - Disconnect from server
-- `subscribeBook(market, callback, depth?)` - Subscribe to order book
-- `subscribeTrades(market, callback)` - Subscribe to trades
-- `subscribeOrders(callback)` - Subscribe to order updates
-- `unsubscribe(subscriptionId)` - Unsubscribe from channel
-
-### Type Guards
-
-Runtime validation functions for API responses:
-
-```typescript
-import { isMarket, isOrder, isTrade, assertMarket } from '@matchbook/sdk';
-
-// Type guards return boolean
-if (isMarket(data)) {
-  console.log(data.address); // TypeScript knows data is Market
-}
-
-// Assert functions throw on invalid data
-const market = assertMarket(data); // Throws if invalid
+```bash
+cargo build-sbf --manifest-path ../program/Cargo.toml
+npm test
 ```
-
-### Error Handling
-
-```typescript
-import {
-  ClientError,
-  HttpError,
-  ApiError,
-  TimeoutError,
-  RateLimitError,
-  NotFoundError,
-  UnauthorizedError,
-  isClientError,
-  isRateLimitError,
-} from '@matchbook/sdk';
-
-try {
-  const market = await client.getMarket('invalid');
-} catch (error) {
-  if (isRateLimitError(error)) {
-    console.log('Rate limited, retry after:', error.retryAfter);
-  } else if (error instanceof NotFoundError) {
-    console.log('Market not found');
-  } else if (isClientError(error)) {
-    console.log('Client error:', error.message);
-  }
-}
-```
-
-## Configuration
-
-### HTTP Client
-
-```typescript
-interface ClientConfig {
-  baseUrl?: string;    // REST API base URL
-  wsUrl?: string;      // WebSocket URL
-  timeout?: number;    // Request timeout (ms)
-  apiKey?: string;     // API key for authentication
-  headers?: Record<string, string>; // Custom headers
-}
-```
-
-### WebSocket Client
-
-The WebSocket client uses the same configuration. It automatically:
-
-- Sends heartbeat pings every 30 seconds
-- Reconnects with exponential backoff on disconnect
-- Resubscribes to all channels after reconnection
-
-## License
-
-MIT
