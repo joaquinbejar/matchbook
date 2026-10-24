@@ -47,6 +47,16 @@ pub enum EngineError {
     AlreadyExpired,
     /// Internal invariant violated (bug).
     Corrupted,
+    /// No such delegate for this seat.
+    DelegateNotFound,
+    /// The seat already has the maximum number of delegates.
+    TooManyDelegates,
+    /// The signer may not do this for the seat.
+    NotPermitted,
+    /// The delegate's session has ended.
+    DelegateExpired,
+    /// A delegate cannot be the seat's owner, and needs known permissions.
+    InvalidDelegate,
 }
 
 impl fmt::Display for EngineError {

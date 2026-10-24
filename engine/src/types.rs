@@ -269,3 +269,61 @@ pub struct RestingOrder {
     /// Owner.
     pub owner: [u8; 32],
 }
+
+/// Permission bits a seat owner grants a delegate.
+pub mod permission {
+    /// Place, reduce and cancel orders, and batch updates.
+    pub const TRADE: u64 = 1;
+    /// Cancel and reduce orders only.
+    pub const CANCEL: u64 = 1 << 1;
+    /// Every defined bit.
+    pub const ALL: u64 = TRADE | CANCEL;
+}
+
+/// Who is acting for a seat: its owner, or one of its delegates.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Actor {
+    /// The seat acted for.
+    pub trader: u32,
+    /// Whether the signer is a delegate rather than the owner.
+    pub delegate: bool,
+    /// The delegate's [`permission`] bits (all of them for the owner).
+    pub permissions: u64,
+    /// When the delegate's session ends, or 0.
+    pub expires_at: u64,
+}
+
+impl Actor {
+    /// The owner of seat `trader`.
+    #[must_use]
+    pub const fn owner(trader: u32) -> Self {
+        Self {
+            trader,
+            delegate: false,
+            permissions: permission::ALL,
+            expires_at: 0,
+        }
+    }
+
+    /// Fails unless the actor holds one of the `any_of` permissions and, for
+    /// a delegate, its session is still open at unix time `now`.
+    pub fn require(&self, any_of: u64, now: u64) -> crate::Result<u32> {
+        if self.delegate {
+            if self.permissions & any_of == 0 {
+                return Err(crate::EngineError::NotPermitted);
+            }
+            if self.expires_at != 0 && now >= self.expires_at {
+                return Err(crate::EngineError::DelegateExpired);
+            }
+        }
+        Ok(self.trader)
+    }
+
+    /// Fails unless the actor is the seat's owner.
+    pub fn require_owner(&self) -> crate::Result<u32> {
+        if self.delegate {
+            return Err(crate::EngineError::NotPermitted);
+        }
+        Ok(self.trader)
+    }
+}

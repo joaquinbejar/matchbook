@@ -101,8 +101,8 @@ pub struct MarketHeader {
     /// Resting orders that carry an expiry. While zero, hosts can skip
     /// reading the clock for orders without one.
     pub expiring_orders: u32,
-    /// Padding.
-    pub padding: u32,
+    /// Delegates registered across all seats.
+    pub delegate_count: u32,
     /// Price of the best bid, or 0 when there is none.
     pub best_bid_price: u64,
     /// Price of the best ask, or `u64::MAX` when there is none.

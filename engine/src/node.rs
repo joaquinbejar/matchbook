@@ -49,6 +49,8 @@ pub enum NodeTag {
     Order = 2,
     /// Trader seat with balances.
     Trader = 3,
+    /// Key allowed to act for a seat.
+    Delegate = 4,
 }
 
 /// Untyped node with the shared tree prefix. Cast to [`OrderLeaf`] or
@@ -194,7 +196,50 @@ impl TraderLeaf {
     }
 }
 
+/// Bits of [`TraderLeaf::flags`] that count the seat's delegates.
+pub(crate) const DELEGATE_COUNT_SHIFT: u32 = 8;
+pub(crate) const DELEGATE_COUNT_MASK: u32 = 0xff << DELEGATE_COUNT_SHIFT;
+
+impl TraderLeaf {
+    /// Number of delegates acting for this seat.
+    #[inline]
+    pub fn delegate_count(&self) -> u32 {
+        (self.flags & DELEGATE_COUNT_MASK) >> DELEGATE_COUNT_SHIFT
+    }
+}
+
+/// A key allowed to act for a seat (a session key or a trading bot), stored
+/// in the traders tree next to the seats. It can trade or cancel, as its
+/// permissions allow, but never withdraw or manage delegates.
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable, Debug)]
+pub struct DelegateLeaf {
+    /// [`NodeTag::Delegate`].
+    pub tag: u32,
+    /// Tree color.
+    pub flags: u32,
+    /// Left child.
+    pub left: u32,
+    /// Right child.
+    pub right: u32,
+    /// Parent.
+    pub parent: u32,
+    /// Seat this delegate acts for.
+    pub trader: u32,
+    /// Low half of the tree key.
+    pub key_lo: u64,
+    /// High half of the tree key.
+    pub key_hi: u64,
+    /// The delegate's public key.
+    pub delegate: [u8; 32],
+    /// Unix time after which the delegate can no longer act, or 0.
+    pub expires_at: u64,
+    /// [`crate::permission`] bits.
+    pub permissions: u64,
+}
+
 const _: () = assert!(core::mem::size_of::<Node>() == NODE_SIZE);
+const _: () = assert!(core::mem::size_of::<DelegateLeaf>() == NODE_SIZE);
 const _: () = assert!(core::mem::size_of::<OrderLeaf>() == NODE_SIZE);
 const _: () = assert!(core::mem::size_of::<TraderLeaf>() == NODE_SIZE);
 const _: () = assert!(core::mem::align_of::<Node>() == 8);

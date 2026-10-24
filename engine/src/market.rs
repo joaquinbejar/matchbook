@@ -3,9 +3,15 @@
 use bytemuck::{cast_mut, cast_ref};
 
 use crate::header::{MarketHeader, MarketStatus, HEADER_SIZE, MARKET_MAGIC};
-use crate::node::{Node, NodeTag, OrderLeaf, TraderLeaf, FLAG_ASK, NIL, NODE_SIZE};
+use crate::node::{
+    DelegateLeaf, Node, NodeTag, OrderLeaf, TraderLeaf, DELEGATE_COUNT_MASK, DELEGATE_COUNT_SHIFT,
+    FLAG_ASK, NIL, NODE_SIZE,
+};
 use crate::rbtree::{self, Tree};
-use crate::{BookLevel, EngineError, RestingOrder, Result, Side};
+use crate::{permission, Actor, BookLevel, EngineError, RestingOrder, Result, Side};
+
+/// Delegates one seat may have at a time.
+pub const MAX_DELEGATES: u32 = 8;
 
 /// Maximum fee in basis points (10%).
 pub const MAX_FEE_BPS: u32 = 1_000;
@@ -313,7 +319,7 @@ impl<'a> Market<'a> {
             self.header.traders_root,
             TraderLeaf::key_for(owner),
         )?;
-        if i == NIL {
+        if i == NIL || !self.node(i)?.is(NodeTag::Trader) {
             return Ok(None);
         }
         Ok((self.trader(i)?.owner == *owner).then_some(i))
@@ -352,10 +358,124 @@ impl<'a> Market<'a> {
         Ok(i)
     }
 
+    /// Resolves who `signer` acts for: a seat it owns, or the seat it is a
+    /// delegate of. `hint` may name either node.
+    pub fn resolve_actor(&self, signer: &[u8; 32], hint: Option<u32>) -> Result<Actor> {
+        let actor_at = |i: u32| -> Option<Actor> {
+            let n = self.nodes.get(i as usize)?;
+            if n.is(NodeTag::Trader) {
+                let t: &TraderLeaf = cast_ref(n);
+                (t.owner == *signer).then_some(Actor::owner(i))
+            } else if n.is(NodeTag::Delegate) {
+                let d: &DelegateLeaf = cast_ref(n);
+                (d.delegate == *signer).then_some(Actor {
+                    trader: d.trader,
+                    delegate: true,
+                    permissions: d.permissions,
+                    expires_at: d.expires_at,
+                })
+            } else {
+                None
+            }
+        };
+        if let Some(a) = hint.and_then(actor_at) {
+            return Ok(a);
+        }
+        let i = rbtree::find(
+            self.nodes,
+            self.header.traders_root,
+            TraderLeaf::key_for(signer),
+        )?;
+        actor_at(i).ok_or(EngineError::TraderNotFound)
+    }
+
+    /// Lets `delegate` act for seat `trader` until `expires_at` (0 = no end)
+    /// with `permissions`. Granting an existing delegate again replaces its
+    /// expiry and permissions. Needs one free node for a new delegate.
+    pub fn add_delegate(
+        &mut self,
+        trader: u32,
+        delegate: &[u8; 32],
+        expires_at: u64,
+        permissions: u64,
+    ) -> Result<u32> {
+        let (owner, count) = {
+            let t = self.trader(trader)?;
+            (t.owner, t.delegate_count())
+        };
+        if owner == *delegate || permissions == 0 || permissions & !permission::ALL != 0 {
+            return Err(EngineError::InvalidDelegate);
+        }
+        let key = TraderLeaf::key_for(delegate);
+        let existing = rbtree::find(self.nodes, self.header.traders_root, key)?;
+        if existing != NIL {
+            let n = self.node_mut(existing)?;
+            if !n.is(NodeTag::Delegate) {
+                return Err(EngineError::SeatAlreadyClaimed);
+            }
+            let d: &mut DelegateLeaf = cast_mut(n);
+            if d.trader != trader || d.delegate != *delegate {
+                return Err(EngineError::SeatAlreadyClaimed);
+            }
+            d.expires_at = expires_at;
+            d.permissions = permissions;
+            return Ok(existing);
+        }
+        if count >= MAX_DELEGATES {
+            return Err(EngineError::TooManyDelegates);
+        }
+        let i = self.alloc()?;
+        {
+            let n = self.node_mut(i)?;
+            *n = bytemuck::Zeroable::zeroed();
+            n.set_key(key);
+            let d: &mut DelegateLeaf = cast_mut(n);
+            d.tag = NodeTag::Delegate as u32;
+            d.trader = trader;
+            d.delegate = *delegate;
+            d.expires_at = expires_at;
+            d.permissions = permissions;
+        }
+        self.tree(TreeId::Traders).insert(i)?;
+        self.trader_mut(trader)?.flags += 1 << DELEGATE_COUNT_SHIFT;
+        self.header.delegate_count = self.header.delegate_count.saturating_add(1);
+        Ok(i)
+    }
+
+    /// Revokes `delegate` from seat `trader` and frees its node.
+    pub fn remove_delegate(&mut self, trader: u32, delegate: &[u8; 32]) -> Result<()> {
+        let i = rbtree::find(
+            self.nodes,
+            self.header.traders_root,
+            TraderLeaf::key_for(delegate),
+        )?;
+        let n = self
+            .nodes
+            .get(i as usize)
+            .ok_or(EngineError::DelegateNotFound)?;
+        if !n.is(NodeTag::Delegate) {
+            return Err(EngineError::DelegateNotFound);
+        }
+        let d: &DelegateLeaf = cast_ref(n);
+        if d.trader != trader || d.delegate != *delegate {
+            return Err(EngineError::DelegateNotFound);
+        }
+        self.trader(trader)?;
+        self.tree(TreeId::Traders).remove(i)?;
+        self.release(i)?;
+        self.trader_mut(trader)?.flags -= 1 << DELEGATE_COUNT_SHIFT;
+        self.header.delegate_count = self.header.delegate_count.saturating_sub(1);
+        Ok(())
+    }
+
     /// Removes an empty seat and frees its node.
     pub fn release_seat(&mut self, i: u32) -> Result<()> {
         let t = self.trader(i)?;
-        if t.order_head != NIL || t.base_free != 0 || t.quote_free != 0 {
+        if t.order_head != NIL
+            || t.base_free != 0
+            || t.quote_free != 0
+            || t.flags & DELEGATE_COUNT_MASK != 0
+        {
             return Err(EngineError::SeatNotEmpty);
         }
         self.tree(TreeId::Traders).remove(i)?;
@@ -545,7 +665,7 @@ impl<'a> Market<'a> {
                 Ok(())
             }
         };
-        bad(bids + asks != h.order_count || traders != h.trader_count)?;
+        bad(bids + asks != h.order_count || traders != h.trader_count + h.delegate_count)?;
         bad(h.best_bid != rbtree::max(self.nodes, h.bids_root)?)?;
         bad(h.best_ask != rbtree::min(self.nodes, h.asks_root)?)?;
         let price_of = |i: u32, none: u64| -> Result<u64> {
@@ -570,7 +690,7 @@ impl<'a> Market<'a> {
             i = n.extra;
         }
         bad(free != h.free_list_len)?;
-        bad(free + h.order_count + h.trader_count != h.next_unused)?;
+        bad(free + h.order_count + h.trader_count + h.delegate_count != h.next_unused)?;
 
         let mut totals = MarketTotals {
             orders: h.order_count,
@@ -579,12 +699,34 @@ impl<'a> Market<'a> {
             ..MarketTotals::default()
         };
         let mut seen_orders = 0u32;
+        let mut seen_delegates = 0u32;
         let mut expiring = 0u32;
         for idx in 0..h.next_unused {
             let n = self.node(idx)?;
+            if n.is(NodeTag::Delegate) {
+                let d: &DelegateLeaf = cast_ref(n);
+                bad(TraderLeaf::key_for(&d.delegate) != n.key())?;
+                bad(d.permissions == 0 || d.permissions & !permission::ALL != 0)?;
+                bad(self.trader(d.trader)?.owner == d.delegate)?;
+                seen_delegates = seen_delegates
+                    .checked_add(1)
+                    .ok_or(EngineError::Corrupted)?;
+            }
             if n.is(NodeTag::Trader) {
                 let t = self.trader(idx)?;
                 bad(TraderLeaf::key_for(&t.owner) != n.key())?;
+                if t.delegate_count() != 0 {
+                    let mut c = 0u32;
+                    for j in 0..h.next_unused {
+                        let m = self.node(j)?;
+                        if m.is(NodeTag::Delegate)
+                            && cast_ref::<Node, DelegateLeaf>(m).trader == idx
+                        {
+                            c += 1;
+                        }
+                    }
+                    bad(c != t.delegate_count())?;
+                }
                 let (bl, ql) = self.locked(idx)?;
                 totals.base_atoms += u128::from(t.base_free) + u128::from(bl);
                 totals.quote_atoms += u128::from(t.quote_free) + u128::from(ql);
@@ -607,6 +749,7 @@ impl<'a> Market<'a> {
             }
         }
         bad(seen_orders != h.order_count || expiring != h.expiring_orders)?;
+        bad(seen_delegates != h.delegate_count)?;
         Ok(totals)
     }
 }

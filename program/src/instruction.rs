@@ -60,6 +60,16 @@ pub enum Ix {
     SetStatus = 12,
     /// Accounts: market (w). `hint`: max orders to prune. Permissionless.
     PruneExpired = 13,
+    /// Lets another key act for the owner's seat: a session key for an app
+    /// or a bot's hot key. It can trade or cancel as its permissions allow,
+    /// but never withdraw. Granting an existing delegate again updates it.
+    /// Accounts: owner (s,w), market (w), system_program. Payload:
+    /// [`DelegateArgs`].
+    SetDelegate = 14,
+    /// Revokes a delegate. Signed by the seat's owner or by the delegate
+    /// itself. Accounts: signer (s), market (w). Payload: delegate key
+    /// (32 bytes).
+    RemoveDelegate = 15,
 }
 
 impl Ix {
@@ -80,6 +90,8 @@ impl Ix {
             11 => Self::CollectFees,
             12 => Self::SetStatus,
             13 => Self::PruneExpired,
+            14 => Self::SetDelegate,
+            15 => Self::RemoveDelegate,
             _ => return None,
         })
     }
@@ -274,6 +286,18 @@ impl OrderArgs {
     }
 }
 
+/// Arguments of [`Ix::SetDelegate`].
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Pod, Zeroable)]
+pub struct DelegateArgs {
+    /// The delegate's public key.
+    pub delegate: [u8; 32],
+    /// Unix time when the delegate stops being able to act (0 = never).
+    pub expires_at: u64,
+    /// [`matchbook_engine::permission`] bits.
+    pub permissions: u64,
+}
+
 /// Arguments of [`Ix::Swap`]. The side travels in the header.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Pod, Zeroable)]
@@ -391,6 +415,16 @@ pub mod build {
     /// [`Ix::Swap`] data (side: 0 buy base, 1 sell base).
     pub fn swap(side: u8, a: &SwapArgs) -> Vec<u8> {
         with(Ix::Swap, side, 0, 0, 0, bytemuck::bytes_of(a))
+    }
+
+    /// [`Ix::SetDelegate`] data.
+    pub fn set_delegate(hint: u32, a: &DelegateArgs) -> Vec<u8> {
+        with(Ix::SetDelegate, 0, 0, 0, hint, bytemuck::bytes_of(a))
+    }
+
+    /// [`Ix::RemoveDelegate`] data.
+    pub fn remove_delegate(hint: u32, delegate: &[u8; 32]) -> Vec<u8> {
+        with(Ix::RemoveDelegate, 0, 0, 0, hint, delegate)
     }
 
     /// [`Ix::CollectFees`] data.

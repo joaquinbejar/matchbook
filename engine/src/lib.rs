@@ -60,12 +60,12 @@ pub use events::{EventSink, FillEvent, NoopSink, OrderOutEvent, OutReason, Place
 pub use header::{MarketHeader, MarketStatus, HEADER_SIZE, MARKET_MAGIC};
 pub use market::{market_size, Market, MarketParams, MarketTotals};
 pub use node::{
-    order_id, split_order_id, Node, NodeTag, OrderLeaf, TraderLeaf, MAX_ORDER_SEQ, NIL, NODE_SIZE,
-    ORDER_INDEX_BITS,
+    order_id, split_order_id, DelegateLeaf, Node, NodeTag, OrderLeaf, TraderLeaf, MAX_ORDER_SEQ,
+    NIL, NODE_SIZE, ORDER_INDEX_BITS,
 };
 pub use types::{
-    BookLevel, OrderParams, OrderType, PlaceOutcome, RestingOrder, SelfTradeBehavior, Side,
-    SwapOutcome, SwapParams,
+    permission, Actor, BookLevel, OrderParams, OrderType, PlaceOutcome, RestingOrder,
+    SelfTradeBehavior, Side, SwapOutcome, SwapParams,
 };
 
 /// Result type used across the engine.
