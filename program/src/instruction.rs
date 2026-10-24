@@ -109,10 +109,21 @@ pub struct Header {
 impl Header {
     /// Splits instruction data into its header and payload.
     pub fn parse(data: &[u8]) -> Result<(Self, Reader<'_>), MatchbookError> {
-        let (h, rest) = data.split_first_chunk::<HEADER_LEN>().ok_or(MatchbookError::InvalidInstruction)?;
+        let (h, rest) = data
+            .split_first_chunk::<HEADER_LEN>()
+            .ok_or(MatchbookError::InvalidInstruction)?;
         let [tag, a, b, c, h0, h1, h2, h3] = *h;
         let ix = Ix::from_u8(tag).ok_or(MatchbookError::InvalidInstruction)?;
-        Ok((Self { ix, a, b, c, hint: u32::from_le_bytes([h0, h1, h2, h3]) }, Reader::new(rest)))
+        Ok((
+            Self {
+                ix,
+                a,
+                b,
+                c,
+                hint: u32::from_le_bytes([h0, h1, h2, h3]),
+            },
+            Reader::new(rest),
+        ))
     }
 
     /// Encodes the header.
@@ -324,7 +335,14 @@ pub mod build {
 
     /// [`Ix::CancelByClientId`] data.
     pub fn cancel_by_client_id(hint: u32, client_order_id: u64) -> Vec<u8> {
-        with(Ix::CancelByClientId, 0, 0, 0, hint, &client_order_id.to_le_bytes())
+        with(
+            Ix::CancelByClientId,
+            0,
+            0,
+            0,
+            hint,
+            &client_order_id.to_le_bytes(),
+        )
     }
 
     /// [`Ix::ReduceOrder`] data.
@@ -335,8 +353,20 @@ pub mod build {
     }
 
     /// [`Ix::BatchUpdate`] data.
-    pub fn batch_update(hint: u32, cancel_all: u8, cancels: &[u64], orders: &[OrderArgs]) -> Vec<u8> {
-        let mut d = with(Ix::BatchUpdate, cancel_all, cancels.len() as u8, orders.len() as u8, hint, &[]);
+    pub fn batch_update(
+        hint: u32,
+        cancel_all: u8,
+        cancels: &[u64],
+        orders: &[OrderArgs],
+    ) -> Vec<u8> {
+        let mut d = with(
+            Ix::BatchUpdate,
+            cancel_all,
+            cancels.len() as u8,
+            orders.len() as u8,
+            hint,
+            &[],
+        );
         for c in cancels {
             d.extend_from_slice(&c.to_le_bytes());
         }

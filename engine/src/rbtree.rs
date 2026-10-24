@@ -6,6 +6,11 @@
 use crate::node::{Node, FLAG_RED, NIL};
 use crate::{EngineError, Result};
 
+/// [`Tree::insert_with_edges`]: the new node is the tree's minimum.
+pub(crate) const EDGE_MIN: u8 = 1;
+/// [`Tree::insert_with_edges`]: the new node is the tree's maximum.
+pub(crate) const EDGE_MAX: u8 = 2;
+
 /// A tree view: the node pool plus one root pointer from the header.
 pub(crate) struct Tree<'a> {
     pub nodes: &'a mut [Node],
@@ -133,7 +138,11 @@ impl Tree<'_> {
     fn paint(&mut self, i: u32, is_red: bool) -> Result<()> {
         if i != NIL {
             let n = self.m(i)?;
-            n.flags = if is_red { n.flags | FLAG_RED } else { n.flags & !FLAG_RED };
+            n.flags = if is_red {
+                n.flags | FLAG_RED
+            } else {
+                n.flags & !FLAG_RED
+            };
         }
         Ok(())
     }
@@ -181,40 +190,67 @@ impl Tree<'_> {
     /// Inserts node `z` (key already set). Fails on duplicate keys without
     /// modifying the tree.
     pub fn insert(&mut self, z: u32) -> Result<()> {
-        let (hi, lo) = {
+        self.insert_with_edges(z, NIL, NIL).map(|_| ())
+    }
+
+    /// Inserts node `z` given the tree's current minimum `lo` and maximum
+    /// `hi`. A key beyond either edge is attached there directly instead of
+    /// descending from the root, which is the common case for orders that
+    /// improve the best price or join the back of the book. Returns the
+    /// [`EDGE_MIN`] / [`EDGE_MAX`] bits for edges `z` became.
+    pub fn insert_with_edges(&mut self, z: u32, lo: u32, hi: u32) -> Result<u8> {
+        let (khi, klo) = {
             let n = self.n(z)?;
             (n.key_hi, n.key_lo)
         };
-        let mut y = NIL;
-        let mut x = *self.root;
-        let mut go_left = false;
-        while let Some(n) = self.nodes.get(x as usize) {
-            y = x;
-            go_left = if hi != n.key_hi {
-                hi < n.key_hi
-            } else if lo != n.key_lo {
-                lo < n.key_lo
-            } else {
+        let less = |n: &Node| khi < n.key_hi || (khi == n.key_hi && klo < n.key_lo);
+        let greater = |n: &Node| khi > n.key_hi || (khi == n.key_hi && klo > n.key_lo);
+        let (parent, right, edges) = if *self.root == NIL {
+            (NIL, false, EDGE_MIN | EDGE_MAX)
+        } else if let Some(l) = self.nodes.get(lo as usize).filter(|n| less(n)) {
+            if l.left != NIL {
                 return Err(EngineError::Corrupted);
-            };
-            x = if go_left { n.left } else { n.right };
-        }
-        if x != NIL {
-            return Err(EngineError::Corrupted);
-        }
+            }
+            (lo, false, EDGE_MIN)
+        } else if let Some(h) = self.nodes.get(hi as usize).filter(|n| greater(n)) {
+            if h.right != NIL {
+                return Err(EngineError::Corrupted);
+            }
+            (hi, true, EDGE_MAX)
+        } else {
+            let mut y = NIL;
+            let mut x = *self.root;
+            let mut go_right = false;
+            while let Some(n) = self.nodes.get(x as usize) {
+                y = x;
+                go_right = if khi != n.key_hi {
+                    khi > n.key_hi
+                } else if klo != n.key_lo {
+                    klo > n.key_lo
+                } else {
+                    return Err(EngineError::Corrupted);
+                };
+                x = child(n, go_right);
+            }
+            if x != NIL {
+                return Err(EngineError::Corrupted);
+            }
+            (y, go_right, 0)
+        };
         {
             let zn = self.m(z)?;
-            zn.parent = y;
+            zn.parent = parent;
             zn.left = NIL;
             zn.right = NIL;
             zn.flags |= FLAG_RED;
         }
-        if y == NIL {
+        if parent == NIL {
             *self.root = z;
         } else {
-            set_child(self.m(y)?, !go_left, z);
+            set_child(self.m(parent)?, right, z);
         }
-        self.insert_fixup(z)
+        self.insert_fixup(z)?;
+        Ok(edges)
     }
 
     fn insert_fixup(&mut self, mut z: u32) -> Result<()> {
@@ -300,7 +336,11 @@ impl Tree<'_> {
                 let n = self.m(y)?;
                 n.parent = zp;
                 n.left = zl;
-                n.flags = if z_red { n.flags | FLAG_RED } else { n.flags & !FLAG_RED };
+                n.flags = if z_red {
+                    n.flags | FLAG_RED
+                } else {
+                    n.flags & !FLAG_RED
+                };
             }
             self.m(zl)?.parent = y;
         }
@@ -422,7 +462,10 @@ mod tests {
             x ^= x << 17;
             let insert = live.is_empty() || (!free.is_empty() && x % 5 < 3);
             {
-                let mut t = Tree { nodes: &mut nodes, root: &mut root };
+                let mut t = Tree {
+                    nodes: &mut nodes,
+                    root: &mut root,
+                };
                 if insert {
                     let i = free.pop().unwrap();
                     t.nodes[i as usize].flags = 0;
@@ -430,7 +473,9 @@ mod tests {
                     live.push(i);
                 } else {
                     // Mostly remove the minimum, as matching does.
-                    let k = if x % 3 == 0 { (x >> 8) as usize % live.len() } else {
+                    let k = if x % 3 == 0 {
+                        (x >> 8) as usize % live.len()
+                    } else {
                         let m = min(t.nodes, *t.root).unwrap();
                         live.iter().position(|&v| v == m).unwrap()
                     };
@@ -440,7 +485,11 @@ mod tests {
                 }
             }
             if step % 7 == 0 || live.len() < 50 {
-                assert_eq!(validate(&nodes, root).unwrap() as usize, live.len(), "step {step}");
+                assert_eq!(
+                    validate(&nodes, root).unwrap() as usize,
+                    live.len(),
+                    "step {step}"
+                );
             }
         }
         assert_eq!(validate(&nodes, root).unwrap() as usize, live.len());

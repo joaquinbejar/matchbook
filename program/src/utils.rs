@@ -77,12 +77,17 @@ pub(crate) fn token_amount(a: &AccountView) -> Result<u64, ProgramError> {
 }
 
 /// Decimals of a mint and a check that `token_program` owns it.
-pub(crate) fn mint_decimals(mint: &AccountView, token_program: &AccountView) -> Result<u8, ProgramError> {
+pub(crate) fn mint_decimals(
+    mint: &AccountView,
+    token_program: &AccountView,
+) -> Result<u8, ProgramError> {
     if !mint.owned_by(token_program.address()) {
         return Err(MatchbookError::InvalidMint.into());
     }
     let d = mint.try_borrow()?;
-    d.get(44).copied().ok_or_else(|| MatchbookError::InvalidMint.into())
+    d.get(44)
+        .copied()
+        .ok_or_else(|| MatchbookError::InvalidMint.into())
 }
 
 /// Seeds of the vault authority PDA.
@@ -117,7 +122,11 @@ pub(crate) fn transfer(
 }
 
 /// Grows the market so that `needed` nodes are free, charging rent to `payer`.
-pub(crate) fn ensure_nodes(market: &mut AccountView, payer: &AccountView, needed: u32) -> ProgramResult {
+pub(crate) fn ensure_nodes(
+    market: &mut AccountView,
+    payer: &AccountView,
+    needed: u32,
+) -> ProgramResult {
     let extra = {
         let mut data = market.try_borrow_mut()?;
         let m = Market::load_mut(&mut data).map_err(engine)?;

@@ -8,8 +8,8 @@ use crate::error::{engine, MatchbookError};
 use crate::events::LogSink;
 use crate::instruction::{CreateMarketArgs, Header, Ix, OrderArgs, Reader, SwapArgs};
 use crate::utils::{
-    ensure_nodes, set_return_data, mint_decimals, now, require_key, require_market, require_signer, token_amount,
-    transfer, vault_seeds,
+    ensure_nodes, mint_decimals, now, require_key, require_market, require_signer, set_return_data,
+    token_amount, transfer, vault_seeds,
 };
 
 /// Maximum orders or cancels in one batch.
@@ -29,7 +29,9 @@ pub fn process_instruction(
         Ix::Deposit => deposit(accounts, h, r),
         Ix::Withdraw => withdraw(accounts, h, r),
         Ix::PlaceOrder => place_order(accounts, h, r),
-        Ix::CancelOrder | Ix::CancelAll | Ix::CancelByClientId | Ix::ReduceOrder => cancel(accounts, h, r),
+        Ix::CancelOrder | Ix::CancelAll | Ix::CancelByClientId | Ix::ReduceOrder => {
+            cancel(accounts, h, r)
+        }
         Ix::BatchUpdate => batch_update(accounts, h, r),
         Ix::Swap => swap(accounts, h, r),
         Ix::CollectFees => collect_fees(accounts),
@@ -77,11 +79,18 @@ fn create_market(accounts: &mut [AccountView], r: &mut Reader<'_>) -> ProgramRes
     if !market.owned_by(&crate::ID) {
         let space = matchbook_engine::market_size(a.initial_nodes as usize) as u64;
         pinocchio_system::instructions::CreateAccount::with_minimum_balance(
-            payer, market, space, &crate::ID, None,
+            payer,
+            market,
+            space,
+            &crate::ID,
+            None,
         )?
         .invoke()?;
     }
-    for (vault, mint, tp) in [(&*base_vault, &*base_mint, &*base_tp), (&*quote_vault, &*quote_mint, &*quote_tp)] {
+    for (vault, mint, tp) in [
+        (&*base_vault, &*base_mint, &*base_tp),
+        (&*quote_vault, &*quote_mint, &*quote_tp),
+    ] {
         pinocchio_associated_token_account::instructions::CreateIdempotent {
             funding_account: payer,
             account: vault,
@@ -168,8 +177,14 @@ fn deposit(accounts: &mut [AccountView], h: Header, r: &mut Reader<'_>) -> Progr
     let received = token_amount(vault)?.saturating_sub(before);
     let mut data = market.try_borrow_mut()?;
     let mut m = Market::load_mut(&mut data).map_err(engine)?;
-    let t = m.resolve_trader(&owner_bytes(owner), Some(hint)).map_err(engine)?;
-    let (b, q) = if is_base { (received, 0) } else { (0, received) };
+    let t = m
+        .resolve_trader(&owner_bytes(owner), Some(hint))
+        .map_err(engine)?;
+    let (b, q) = if is_base {
+        (received, 0)
+    } else {
+        (0, received)
+    };
     m.deposit(t, b, q).map_err(engine)
 }
 
@@ -185,14 +200,25 @@ fn withdraw(accounts: &mut [AccountView], h: Header, r: &mut Reader<'_>) -> Prog
         let mut data = market.try_borrow_mut()?;
         let mut m = Market::load_mut(&mut data).map_err(engine)?;
         let is_base = resolve_vault(&m, mint, vault, tp)?;
-        let t = m.resolve_trader(&owner_bytes(owner), Some(hint)).map_err(engine)?;
+        let t = m
+            .resolve_trader(&owner_bytes(owner), Some(hint))
+            .map_err(engine)?;
         let (b, q) = if is_base { (amount, 0) } else { (0, amount) };
         m.withdraw(t, b, q).map_err(engine)?;
         [m.header().host_bump as u8]
     };
     let decimals = mint_decimals(mint, tp)?;
     let seeds = vault_seeds(market.address(), &bump);
-    transfer(vault, mint, user_token, vault_authority, tp, amount, decimals, Some(&Signer::from(&seeds)))
+    transfer(
+        vault,
+        mint,
+        user_token,
+        vault_authority,
+        tp,
+        amount,
+        decimals,
+        Some(&Signer::from(&seeds)),
+    )
 }
 
 fn place_order(accounts: &mut [AccountView], h: Header, r: &mut Reader<'_>) -> ProgramResult {
@@ -215,7 +241,13 @@ fn place_order(accounts: &mut [AccountView], h: Header, r: &mut Reader<'_>) -> P
     let t = m.resolve_trader(&me, Some(hint)).map_err(engine)?;
     let mut s = LogSink::new();
     let out = m.place_order(t, &p, ts, &mut s).map_err(engine)?;
-    s.take(&me, p.side, out.filled_base_lots, out.filled_quote_atoms, out.fee_atoms);
+    s.take(
+        &me,
+        p.side,
+        out.filled_base_lots,
+        out.filled_quote_atoms,
+        out.fee_atoms,
+    );
     set_return_data(&out.order_id.unwrap_or(0).to_le_bytes());
     Ok(())
 }
@@ -228,7 +260,9 @@ fn cancel(accounts: &mut [AccountView], h: Header, r: &mut Reader<'_>) -> Progra
     require_market(market)?;
     let mut data = market.try_borrow_mut()?;
     let mut m = Market::load_mut(&mut data).map_err(engine)?;
-    let t = m.resolve_trader(&owner_bytes(owner), Some(h.hint)).map_err(engine)?;
+    let t = m
+        .resolve_trader(&owner_bytes(owner), Some(h.hint))
+        .map_err(engine)?;
     let s = &mut LogSink::new();
     match h.ix {
         Ix::CancelOrder => m.cancel_order(t, r.u64()?, s),
@@ -289,7 +323,13 @@ fn batch_update(accounts: &mut [AccountView], h: Header, r: &mut Reader<'_>) -> 
         let p = r.pod::<OrderArgs>()?.to_params()?;
         let out = m.place_order(t, &p, ts, s).map_err(engine)?;
         matchbook_engine::cu!();
-        s.take(&me, p.side, out.filled_base_lots, out.filled_quote_atoms, out.fee_atoms);
+        s.take(
+            &me,
+            p.side,
+            out.filled_base_lots,
+            out.filled_quote_atoms,
+            out.fee_atoms,
+        );
         *slot = out.order_id.unwrap_or(0);
     }
     if let Some(placed) = ids.get(..usize::from(n_orders)) {
@@ -315,7 +355,9 @@ fn swap(accounts: &mut [AccountView], h: Header, r: &mut Reader<'_>) -> ProgramR
     let (out, bump) = {
         let mut data = market.try_borrow_mut()?;
         let mut m = Market::load_mut(&mut data).map_err(engine)?;
-        if !resolve_vault(&m, base_mint, base_vault, base_tp)? || resolve_vault(&m, quote_mint, quote_vault, quote_tp)? {
+        if !resolve_vault(&m, base_mint, base_vault, base_tp)?
+            || resolve_vault(&m, quote_mint, quote_vault, quote_tp)?
+        {
             return Err(MatchbookError::InvalidAccount.into());
         }
         let out = m
@@ -325,13 +367,23 @@ fn swap(accounts: &mut [AccountView], h: Header, r: &mut Reader<'_>) -> ProgramR
                     base_lots: a.base_lots,
                     quote_budget: a.quote_budget,
                     limit_price: a.limit_price,
-                    match_limit: if a.match_limit == 0 { 64 } else { a.match_limit },
+                    match_limit: if a.match_limit == 0 {
+                        64
+                    } else {
+                        a.match_limit
+                    },
                 },
                 ts,
                 &mut sink,
             )
             .map_err(engine)?;
-        sink.take(&owner_bytes(user), side, out.base_lots, out.quote_atoms, out.fee_atoms);
+        sink.take(
+            &owner_bytes(user),
+            side,
+            out.base_lots,
+            out.quote_atoms,
+            out.fee_atoms,
+        );
         (out, [m.header().host_bump as u8])
     };
     let base_dec = mint_decimals(base_mint, base_tp)?;
@@ -343,19 +395,59 @@ fn swap(accounts: &mut [AccountView], h: Header, r: &mut Reader<'_>) -> ProgramR
         Side::Bid => (&*quote_vault, quote_net),
         Side::Ask => (&*base_vault, out.base_atoms),
     };
-    let received = if side == Side::Bid { out.base_atoms } else { quote_net };
+    let received = if side == Side::Bid {
+        out.base_atoms
+    } else {
+        quote_net
+    };
     if received < a.min_out {
         return Err(MatchbookError::SlippageExceeded.into());
     }
     let before = token_amount(in_vault)?;
     match side {
         Side::Bid => {
-            transfer(user_quote, quote_mint, quote_vault, user, quote_tp, quote_net, quote_dec, None)?;
-            transfer(base_vault, base_mint, user_base, vault_authority, base_tp, out.base_atoms, base_dec, Some(&signer))?;
+            transfer(
+                user_quote,
+                quote_mint,
+                quote_vault,
+                user,
+                quote_tp,
+                quote_net,
+                quote_dec,
+                None,
+            )?;
+            transfer(
+                base_vault,
+                base_mint,
+                user_base,
+                vault_authority,
+                base_tp,
+                out.base_atoms,
+                base_dec,
+                Some(&signer),
+            )?;
         }
         Side::Ask => {
-            transfer(user_base, base_mint, base_vault, user, base_tp, out.base_atoms, base_dec, None)?;
-            transfer(quote_vault, quote_mint, user_quote, vault_authority, quote_tp, quote_net, quote_dec, Some(&signer))?;
+            transfer(
+                user_base,
+                base_mint,
+                base_vault,
+                user,
+                base_tp,
+                out.base_atoms,
+                base_dec,
+                None,
+            )?;
+            transfer(
+                quote_vault,
+                quote_mint,
+                user_quote,
+                vault_authority,
+                quote_tp,
+                quote_net,
+                quote_dec,
+                Some(&signer),
+            )?;
         }
     }
     if token_amount(in_vault)?.saturating_sub(before) != owed {
@@ -365,7 +457,9 @@ fn swap(accounts: &mut [AccountView], h: Header, r: &mut Reader<'_>) -> ProgramR
 }
 
 fn collect_fees(accounts: &mut [AccountView]) -> ProgramResult {
-    let [authority, market, destination, quote_vault, quote_mint, vault_authority, tp, ..] = accounts else {
+    let [authority, market, destination, quote_vault, quote_mint, vault_authority, tp, ..] =
+        accounts
+    else {
         return Err(ProgramError::NotEnoughAccountKeys);
     };
     require_signer(authority)?;
@@ -381,7 +475,16 @@ fn collect_fees(accounts: &mut [AccountView]) -> ProgramResult {
     };
     let decimals = mint_decimals(quote_mint, tp)?;
     let seeds = vault_seeds(market.address(), &bump);
-    transfer(quote_vault, quote_mint, destination, vault_authority, tp, amount, decimals, Some(&Signer::from(&seeds)))
+    transfer(
+        quote_vault,
+        quote_mint,
+        destination,
+        vault_authority,
+        tp,
+        amount,
+        decimals,
+        Some(&Signer::from(&seeds)),
+    )
 }
 
 fn set_status(accounts: &mut [AccountView], h: Header) -> ProgramResult {
@@ -390,7 +493,8 @@ fn set_status(accounts: &mut [AccountView], h: Header) -> ProgramResult {
     };
     require_signer(authority)?;
     require_market(market)?;
-    let status = MarketStatus::from_u32(u32::from(h.a)).ok_or(MatchbookError::InvalidInstructionData)?;
+    let status =
+        MarketStatus::from_u32(u32::from(h.a)).ok_or(MatchbookError::InvalidInstructionData)?;
     let mut data = market.try_borrow_mut()?;
     let mut m = Market::load_mut(&mut data).map_err(engine)?;
     require_key(authority, &m.header().authority).map_err(|_| MatchbookError::NotAuthority)?;
@@ -406,6 +510,7 @@ fn prune_expired(accounts: &mut [AccountView], h: Header) -> ProgramResult {
     let ts = now()?;
     let mut data = market.try_borrow_mut()?;
     let mut m = Market::load_mut(&mut data).map_err(engine)?;
-    m.prune_expired(ts, limit, &mut LogSink::new()).map_err(engine)?;
+    m.prune_expired(ts, limit, &mut LogSink::new())
+        .map_err(engine)?;
     Ok(())
 }

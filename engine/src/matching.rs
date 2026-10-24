@@ -6,11 +6,11 @@
 use bytemuck::cast_mut;
 
 use crate::events::{EventSink, FillEvent, OrderOutEvent, OutReason, PlacedEvent};
-use crate::header::MarketStatus;
 use crate::market::{order_key, Market, TreeId};
 use crate::node::{
     order_id, split_order_id, NodeTag, OrderLeaf, FLAG_ASK, MAX_ORDER_SEQ, NIL, ORDER_INDEX_BITS,
 };
+use crate::rbtree::{EDGE_MAX, EDGE_MIN};
 use crate::{
     EngineError, OrderParams, OrderType, PlaceOutcome, Result, SelfTradeBehavior, Side,
     SwapOutcome, SwapParams,
@@ -116,7 +116,7 @@ impl Market<'_> {
         }
     }
 
-    /// Inserts a resting order and returns its id. Funds must already be locked.
+    /// Locks the funds of a resting order, inserts it and returns its id.
     #[allow(clippy::too_many_arguments)]
     fn insert_order(
         &mut self,
@@ -137,12 +137,34 @@ impl Market<'_> {
             return Err(EngineError::Overflow);
         }
         let key = order_key(side, price, seq);
-        crate::cu!();
         let i = self.alloc()?;
         if i >> ORDER_INDEX_BITS != 0 {
             return Err(EngineError::OutOfSpace);
         }
-        let head = self.trader(trader)?.order_head;
+        // Lock the order's funds and link it at the head of the trader's list.
+        let lock_base = side == Side::Ask;
+        let amount = if lock_base {
+            self.base_for(base_lots)?
+        } else {
+            self.quote_for(base_lots, price)?
+        };
+        let head = {
+            let t = self.trader_mut(trader)?;
+            if lock_base {
+                t.base_free = t
+                    .base_free
+                    .checked_sub(amount)
+                    .ok_or(EngineError::InsufficientFunds)?;
+            } else {
+                t.quote_free = t
+                    .quote_free
+                    .checked_sub(amount)
+                    .ok_or(EngineError::InsufficientFunds)?;
+            }
+            let head = t.order_head;
+            t.order_head = i;
+            head
+        };
         {
             let o: &mut OrderLeaf = cast_mut(self.node_mut(i)?);
             o.tag = NodeTag::Order as u32;
@@ -156,28 +178,35 @@ impl Market<'_> {
             o.seq = seq;
         }
         self.node_mut(i)?.set_key(key);
-        crate::cu!();
-        self.tree(TreeId::of(side)).insert(i)?;
-        crate::cu!();
+        // Asks sort best-first (best = minimum), bids worst-first.
+        let h = &*self.header;
+        let (lo, hi) = match side {
+            Side::Ask => (h.best_ask, h.worst_ask),
+            Side::Bid => (h.worst_bid, h.best_bid),
+        };
+        let edges = self.tree(TreeId::of(side)).insert_with_edges(i, lo, hi)?;
         if head != NIL {
             self.order_mut(head)?.prev = i;
         }
-        self.trader_mut(trader)?.order_head = i;
-        let best = self.best_of(side);
-        let better = best == NIL || {
-            let bk = self.node(best)?.key();
-            match side {
-                Side::Ask => key < bk,
-                Side::Bid => key > bk,
+        let h = &mut *self.header;
+        match side {
+            Side::Ask => {
+                if edges & EDGE_MIN != 0 {
+                    h.best_ask = i;
+                }
+                if edges & EDGE_MAX != 0 {
+                    h.worst_ask = i;
+                }
             }
-        };
-        if better {
-            match side {
-                Side::Ask => self.header.best_ask = i,
-                Side::Bid => self.header.best_bid = i,
+            Side::Bid => {
+                if edges & EDGE_MIN != 0 {
+                    h.worst_bid = i;
+                }
+                if edges & EDGE_MAX != 0 {
+                    h.best_bid = i;
+                }
             }
         }
-        crate::cu!();
         self.header.seq_num = seq;
         self.header.order_count = self.header.order_count.saturating_add(1);
         let id = order_id(seq, i);
@@ -199,39 +228,60 @@ impl Market<'_> {
     /// Removes order `i`, returns its remaining funds to the owner's free
     /// balance and frees the node.
     fn remove_order(&mut self, i: u32, reason: OutReason, sink: &mut impl EventSink) -> Result<()> {
-        let o = *self.order(i)?;
-        let side = side_of(&o);
-        if self.best_of(side) == i {
-            let next = self.next_order(side, i)?;
+        let (side, prev, next, trader, price, lots) = {
+            let o = self.order(i)?;
+            (side_of(o), o.prev, o.next, o.trader, o.price(), o.base_lots)
+        };
+        let (best, worst) = match side {
+            Side::Ask => (self.header.best_ask, self.header.worst_ask),
+            Side::Bid => (self.header.best_bid, self.header.worst_bid),
+        };
+        if best == i {
+            let nb = self.next_order(side, i)?;
             match side {
-                Side::Ask => self.header.best_ask = next,
-                Side::Bid => self.header.best_bid = next,
+                Side::Ask => self.header.best_ask = nb,
+                Side::Bid => self.header.best_bid = nb,
+            }
+        }
+        if worst == i {
+            // The next worst order is the neighbor on the better side.
+            let nw = match side {
+                Side::Ask => crate::rbtree::prev(self.nodes, i)?,
+                Side::Bid => crate::rbtree::next(self.nodes, i)?,
+            };
+            match side {
+                Side::Ask => self.header.worst_ask = nw,
+                Side::Bid => self.header.worst_bid = nw,
             }
         }
         self.tree(TreeId::of(side)).remove(i)?;
-        if o.prev != NIL {
-            self.order_mut(o.prev)?.next = o.next;
+        if prev != NIL {
+            self.order_mut(prev)?.next = next;
         } else {
-            self.trader_mut(o.trader)?.order_head = o.next;
+            self.trader_mut(trader)?.order_head = next;
         }
-        if o.next != NIL {
-            self.order_mut(o.next)?.prev = o.prev;
+        if next != NIL {
+            self.order_mut(next)?.prev = prev;
         }
-        self.unlock(o.trader, side, o.price(), o.base_lots)?;
-        self.release(i)?;
-        self.header.order_count = self.header.order_count.saturating_sub(1);
+        self.unlock(trader, side, price, lots)?;
         if sink.wants_out(reason) {
-            let owner = self.trader(o.trader)?.owner;
+            let (seq, client_order_id) = {
+                let o = self.order(i)?;
+                (o.seq, o.client_order_id)
+            };
+            let owner = self.trader(trader)?.owner;
             sink.on_out(&OrderOutEvent {
                 owner,
-                order_id: order_id(o.seq, i),
-                client_order_id: o.client_order_id,
+                order_id: order_id(seq, i),
+                client_order_id,
                 side,
-                price: o.price(),
-                base_lots: o.base_lots,
+                price,
+                base_lots: lots,
                 reason,
             });
         }
+        self.release(i)?;
+        self.header.order_count = self.header.order_count.saturating_sub(1);
         Ok(())
     }
 
@@ -249,28 +299,6 @@ impl Market<'_> {
                 let q = self.quote_for(lots, price)?;
                 let t = self.trader_mut(trader)?;
                 t.quote_free = add(t.quote_free, q)?;
-            }
-        }
-        Ok(())
-    }
-
-    fn lock(&mut self, trader: u32, side: Side, price: u64, lots: u64) -> Result<()> {
-        match side {
-            Side::Ask => {
-                let b = self.base_for(lots)?;
-                let t = self.trader_mut(trader)?;
-                t.base_free = t
-                    .base_free
-                    .checked_sub(b)
-                    .ok_or(EngineError::InsufficientFunds)?;
-            }
-            Side::Bid => {
-                let q = self.quote_for(lots, price)?;
-                let t = self.trader_mut(trader)?;
-                t.quote_free = t
-                    .quote_free
-                    .checked_sub(q)
-                    .ok_or(EngineError::InsufficientFunds)?;
             }
         }
         Ok(())
@@ -345,17 +373,19 @@ impl Market<'_> {
             if m == NIL {
                 break;
             }
-            let o = *self.order(m)?;
-            let price = o.price();
+            let (price, maker_lots, maker, expired) = {
+                let o = self.order(m)?;
+                (o.price(), o.base_lots, o.trader, o.is_expired(now))
+            };
             if !crosses(side, price, limit) {
                 break;
             }
-            if o.is_expired(now) {
+            if expired {
                 t.touched += 1;
                 self.remove_order(m, OutReason::Expired, sink)?;
                 continue;
             }
-            if taker == Taker::Seat(o.trader) {
+            if taker == Taker::Seat(maker) {
                 t.touched += 1;
                 match stp {
                     SelfTradeBehavior::Abort => return Err(EngineError::SelfTrade),
@@ -363,40 +393,42 @@ impl Market<'_> {
                         self.remove_order(m, OutReason::SelfTrade, sink)?;
                     }
                     SelfTradeBehavior::DecrementTake => {
-                        let d = lots.min(o.base_lots);
+                        let d = lots.min(maker_lots);
                         lots -= d;
-                        self.reduce_resting(m, o.base_lots - d, OutReason::SelfTrade, sink)?;
+                        self.reduce_resting(m, maker_lots - d, OutReason::SelfTrade, sink)?;
                     }
                 }
                 continue;
             }
-            let mut fill = lots.min(o.base_lots);
+            let mut fill = lots.min(maker_lots);
+            let mut quote = self.quote_for(fill, price).ok();
+            let mut fee = quote.map_or(0, |q| self.taker_fee(q));
             if let Some(b) = budget {
                 // Fast path: the whole fill fits the budget.
-                let fits = self
-                    .quote_for(fill, price)
-                    .ok()
-                    .and_then(|q| q.checked_add(self.taker_fee(q)))
+                let fits = quote
+                    .and_then(|q| q.checked_add(fee))
                     .is_some_and(|c| c <= b);
                 if !fits {
                     fill = fill.min(self.affordable_lots(b, price)?);
+                    if fill == 0 {
+                        break;
+                    }
+                    let q = self.quote_for(fill, price)?;
+                    quote = Some(q);
+                    fee = self.taker_fee(q);
                 }
             }
-            if fill == 0 {
-                break;
-            }
+            let quote = quote.ok_or(EngineError::Overflow)?;
             t.touched += 1;
-            let quote = self.quote_for(fill, price)?;
-            let base = self.base_for(fill)?;
-            let fee = self.taker_fee(quote);
             let rebate = self.maker_rebate(quote);
             {
-                let maker = self.trader_mut(o.trader)?;
+                let base = self.base_for(fill)?;
+                let mt = self.trader_mut(maker)?;
                 match book {
-                    Side::Ask => maker.quote_free = add(maker.quote_free, add(quote, rebate)?)?,
+                    Side::Ask => mt.quote_free = add(mt.quote_free, add(quote, rebate)?)?,
                     Side::Bid => {
-                        maker.base_free = add(maker.base_free, base)?;
-                        maker.quote_free = add(maker.quote_free, rebate)?;
+                        mt.base_free = add(mt.base_free, base)?;
+                        mt.quote_free = add(mt.quote_free, rebate)?;
                     }
                 }
             }
@@ -404,19 +436,18 @@ impl Market<'_> {
             h.fees_accrued = add(h.fees_accrued, sub(fee, rebate)?)?;
             h.total_base_lots_traded = h.total_base_lots_traded.saturating_add(fill);
             h.total_quote_atoms_traded = h.total_quote_atoms_traded.saturating_add(quote);
-            let remaining = o.base_lots - fill;
-            if remaining == 0 {
-                self.order_mut(m)?.base_lots = 0;
-                self.remove_order(m, OutReason::Filled, sink)?;
-            } else {
-                self.order_mut(m)?.base_lots = remaining;
-            }
+            let remaining = maker_lots - fill;
+            let (seq, client_order_id) = {
+                let o = self.order_mut(m)?;
+                o.base_lots = remaining;
+                (o.seq, o.client_order_id)
+            };
             if wants_fills(sink) {
-                let maker_owner = self.trader(o.trader)?.owner;
+                let maker_owner = self.trader(maker)?.owner;
                 sink.on_fill(&FillEvent {
                     maker: maker_owner,
-                    maker_order_id: order_id(o.seq, m),
-                    maker_client_order_id: o.client_order_id,
+                    maker_order_id: order_id(seq, m),
+                    maker_client_order_id: client_order_id,
                     taker: taker_owner,
                     taker_side: side,
                     price,
@@ -426,6 +457,9 @@ impl Market<'_> {
                     maker_rebate: rebate,
                     maker_remaining: remaining,
                 });
+            }
+            if remaining == 0 {
+                self.remove_order(m, OutReason::Filled, sink)?;
             }
             lots -= fill;
             t.base_lots = add(t.base_lots, fill)?;
@@ -468,7 +502,7 @@ impl Market<'_> {
         now: u64,
         sink: &mut impl EventSink,
     ) -> Result<PlaceOutcome> {
-        self.require_status(&[MarketStatus::Active])?;
+        self.require_active()?;
         if p.price == 0 {
             return Err(EngineError::InvalidPrice);
         }
@@ -483,7 +517,6 @@ impl Market<'_> {
         {
             return Err(EngineError::BudgetRequiresIoc);
         }
-        crate::cu!();
         let (base_free, quote_free) = {
             let t = self.trader(trader)?;
             (t.base_free, t.quote_free)
@@ -519,7 +552,6 @@ impl Market<'_> {
                 }
             }
         };
-        crate::cu!();
         if p.order_type.rests() {
             self.require_space(1)?;
         }
@@ -562,8 +594,6 @@ impl Market<'_> {
                 return Err(EngineError::FillOrKillNotFilled);
             }
         }
-
-        crate::cu!();
         let mut out = PlaceOutcome::default();
         let mut remaining = p.base_lots;
         // Most orders are passive: when the opposite best does not cross,
@@ -602,12 +632,10 @@ impl Market<'_> {
             out.makers_touched = m.touched;
             remaining = m.remaining;
         }
-        crate::cu!();
         if p.order_type.rests()
             && remaining > 0
             && (!reaches || self.can_rest(p.side, price, now)?)
         {
-            self.lock(trader, p.side, price, remaining)?;
             let id = self.insert_order(
                 trader,
                 p.side,
@@ -621,7 +649,6 @@ impl Market<'_> {
             out.rested_price = price;
             out.rested_base_lots = remaining;
         }
-        crate::cu!();
         Ok(out)
     }
 
@@ -665,7 +692,7 @@ impl Market<'_> {
         order_id: u64,
         sink: &mut impl EventSink,
     ) -> Result<()> {
-        self.require_status(&[MarketStatus::Active, MarketStatus::CancelOnly])?;
+        self.require_cancellable()?;
         let i = self.find_order(trader, order_id)?;
         self.remove_order(i, OutReason::Cancelled, sink)
     }
@@ -696,7 +723,7 @@ impl Market<'_> {
         sink: &mut impl EventSink,
         pred: impl Fn(&OrderLeaf) -> bool,
     ) -> Result<u32> {
-        self.require_status(&[MarketStatus::Active, MarketStatus::CancelOnly])?;
+        self.require_cancellable()?;
         let mut i = self.trader(trader)?.order_head;
         let mut n = 0u32;
         while i != NIL {
@@ -718,7 +745,7 @@ impl Market<'_> {
         new_base_lots: u64,
         sink: &mut impl EventSink,
     ) -> Result<()> {
-        self.require_status(&[MarketStatus::Active, MarketStatus::CancelOnly])?;
+        self.require_cancellable()?;
         let i = self.find_order(trader, order_id)?;
         self.reduce_resting(i, new_base_lots, OutReason::Cancelled, sink)
     }
@@ -755,7 +782,7 @@ impl Market<'_> {
         now: u64,
         sink: &mut impl EventSink,
     ) -> Result<SwapOutcome> {
-        self.require_status(&[MarketStatus::Active])?;
+        self.require_active()?;
         if p.limit_price == 0 {
             return Err(EngineError::InvalidPrice);
         }

@@ -16,7 +16,7 @@
 //! totals, and each fill's quote amount, taker fee and maker rebate follow
 //! from the market's lot sizes and fee rates.
 
-use matchbook_engine::{EventSink, FillEvent, OrderOutEvent, OutReason, PlacedEvent, Side};
+use matchbook_engine::{EventSink, FillEvent, OrderOutEvent, OutReason, Side};
 
 /// Event tags.
 pub mod tag {
@@ -36,9 +36,6 @@ pub const FILL_LEN: usize = 1 + 32 + 8 * 5;
 /// Out: tag, owner (32), order id, client order id, side (1), price,
 /// base lots, reason (1).
 pub const OUT_LEN: usize = 1 + 32 + 8 + 8 + 1 + 8 + 8 + 1;
-/// Placed: tag, owner (32), order id, client order id, side (1), price,
-/// base lots, expires at.
-pub const PLACED_LEN: usize = 1 + 32 + 8 + 8 + 1 + 8 + 8 + 8;
 /// Take: tag, taker (32, zero for a seatless swap), side (1), base lots,
 /// quote atoms before fees, taker fee atoms.
 pub const TAKE_LEN: usize = 1 + 32 + 1 + 8 + 8 + 8;
@@ -46,15 +43,14 @@ pub const TAKE_LEN: usize = 1 + 32 + 1 + 8 + 8 + 8;
 /// Bytes buffered before an early flush. Large enough for 13 fills.
 const CAPACITY: usize = 960;
 
-struct Enc<const N: usize> {
-    b: [u8; N],
+struct Enc<'a, const N: usize> {
+    b: &'a mut [u8; N],
     at: usize,
 }
 
-impl<const N: usize> Enc<N> {
+impl<'a, const N: usize> Enc<'a, N> {
     #[inline(always)]
-    fn new(tag: u8) -> Self {
-        let mut b = [0u8; N];
+    fn new(b: &'a mut [u8; N], tag: u8) -> Self {
         if let Some(t) = b.first_mut() {
             *t = tag;
         }
@@ -77,21 +73,20 @@ impl<const N: usize> Enc<N> {
     }
 }
 
-/// Encodes a fill event.
-pub fn encode_fill(e: &FillEvent) -> [u8; FILL_LEN] {
-    let mut b = Enc::<FILL_LEN>::new(tag::FILL);
+#[inline(always)]
+fn write_fill(out: &mut [u8; FILL_LEN], e: &FillEvent) {
+    let mut b = Enc::new(out, tag::FILL);
     b.put(&e.maker);
     b.u64(e.maker_order_id);
     b.u64(e.maker_client_order_id);
     b.u64(e.price);
     b.u64(e.base_lots);
     b.u64(e.maker_remaining);
-    b.b
 }
 
-/// Encodes an out event.
-pub fn encode_out(e: &OrderOutEvent) -> [u8; OUT_LEN] {
-    let mut b = Enc::<OUT_LEN>::new(tag::OUT);
+#[inline(always)]
+fn write_out(out: &mut [u8; OUT_LEN], e: &OrderOutEvent) {
+    let mut b = Enc::new(out, tag::OUT);
     b.put(&e.owner);
     b.u64(e.order_id);
     b.u64(e.client_order_id);
@@ -99,31 +94,50 @@ pub fn encode_out(e: &OrderOutEvent) -> [u8; OUT_LEN] {
     b.u64(e.price);
     b.u64(e.base_lots);
     b.u8(e.reason as u8);
-    b.b
 }
 
-/// Encodes a placed event.
-pub fn encode_placed(e: &PlacedEvent) -> [u8; PLACED_LEN] {
-    let mut b = Enc::<PLACED_LEN>::new(tag::PLACED);
-    b.put(&e.owner);
-    b.u64(e.order_id);
-    b.u64(e.client_order_id);
-    b.u8(e.side as u8);
-    b.u64(e.price);
-    b.u64(e.base_lots);
-    b.u64(e.expires_at);
-    b.b
-}
-
-/// Encodes a take summary.
-pub fn encode_take(taker: &[u8; 32], side: Side, base_lots: u64, quote_atoms: u64, fee_atoms: u64) -> [u8; TAKE_LEN] {
-    let mut b = Enc::<TAKE_LEN>::new(tag::TAKE);
+#[inline(always)]
+fn write_take(
+    out: &mut [u8; TAKE_LEN],
+    taker: &[u8; 32],
+    side: Side,
+    base_lots: u64,
+    quote_atoms: u64,
+    fee_atoms: u64,
+) {
+    let mut b = Enc::new(out, tag::TAKE);
     b.put(taker);
     b.u8(side as u8);
     b.u64(base_lots);
     b.u64(quote_atoms);
     b.u64(fee_atoms);
-    b.b
+}
+
+/// Encodes a fill event.
+pub fn encode_fill(e: &FillEvent) -> [u8; FILL_LEN] {
+    let mut b = [0; FILL_LEN];
+    write_fill(&mut b, e);
+    b
+}
+
+/// Encodes an out event.
+pub fn encode_out(e: &OrderOutEvent) -> [u8; OUT_LEN] {
+    let mut b = [0; OUT_LEN];
+    write_out(&mut b, e);
+    b
+}
+
+/// Encodes a take summary.
+pub fn encode_take(
+    taker: &[u8; 32],
+    side: Side,
+    base_lots: u64,
+    quote_atoms: u64,
+    fee_atoms: u64,
+) -> [u8; TAKE_LEN] {
+    let mut b = [0; TAKE_LEN];
+    write_take(&mut b, taker, side, base_lots, quote_atoms, fee_atoms);
+    b
 }
 
 /// Sink that buffers events and writes them as one log entry when dropped.
@@ -136,25 +150,37 @@ impl LogSink {
     /// An empty sink.
     #[inline(always)]
     pub fn new() -> Self {
-        Self { buf: [0; CAPACITY], len: 0 }
+        Self {
+            buf: [0; CAPACITY],
+            len: 0,
+        }
     }
 
-    /// Appends one encoded event, flushing first if it would not fit.
+    /// Reserves `K` bytes at the end of the buffer, flushing first if they
+    /// would not fit.
     #[inline(always)]
-    pub fn push<const K: usize>(&mut self, e: &[u8; K]) {
+    fn slot<const K: usize>(&mut self) -> Option<&mut [u8; K]> {
         if self.len + K > CAPACITY {
             self.flush();
         }
-        if let Some(dst) = self.buf.get_mut(self.len..self.len + K) {
-            dst.copy_from_slice(e);
-            self.len += K;
-        }
+        let at = self.len;
+        self.len += K;
+        self.buf.get_mut(at..at + K).and_then(|s| s.try_into().ok())
     }
 
     /// Records the totals of a taking order, if it traded.
-    pub fn take(&mut self, taker: &[u8; 32], side: Side, base_lots: u64, quote_atoms: u64, fee_atoms: u64) {
+    pub fn take(
+        &mut self,
+        taker: &[u8; 32],
+        side: Side,
+        base_lots: u64,
+        quote_atoms: u64,
+        fee_atoms: u64,
+    ) {
         if base_lots > 0 {
-            self.push(&encode_take(taker, side, base_lots, quote_atoms, fee_atoms));
+            if let Some(b) = self.slot() {
+                write_take(b, taker, side, base_lots, quote_atoms, fee_atoms);
+            }
         }
     }
 
@@ -189,11 +215,15 @@ impl EventSink for LogSink {
         matches!(reason, OutReason::Expired | OutReason::SelfTrade)
     }
     fn on_fill(&mut self, e: &FillEvent) {
-        self.push(&encode_fill(e));
+        if let Some(b) = self.slot() {
+            write_fill(b, e);
+        }
     }
     fn on_out(&mut self, e: &OrderOutEvent) {
         if self.wants_out(e.reason) {
-            self.push(&encode_out(e));
+            if let Some(b) = self.slot() {
+                write_out(b, e);
+            }
         }
     }
 }

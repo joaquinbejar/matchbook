@@ -1,11 +1,16 @@
 //! End-to-end tests against the compiled program in LiteSVM.
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing, missing_docs)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    missing_docs
+)]
 
 mod common;
 
 use common::*;
-use matchbook_program::instruction::{build, OrderArgs};
 use matchbook_program::engine::order_id;
+use matchbook_program::instruction::{build, OrderArgs};
 use solana_signer::Signer;
 
 const LOT: u64 = 1_000_000;
@@ -54,14 +59,39 @@ fn swap_fees_and_authority() {
     h.place(&maker, limit(0, 190_000, 10)).unwrap();
 
     // Buy up to 5 lots, too-strict min_out fails atomically.
-    let buy = Swap { side: 0, base_lots: 5, quote_budget: 10_000_000, limit_price: 200_000, min_out: 6 * LOT, match_limit: 0 };
+    let buy = Swap {
+        side: 0,
+        base_lots: 5,
+        quote_budget: 10_000_000,
+        limit_price: 200_000,
+        min_out: 6 * LOT,
+        match_limit: 0,
+    };
     assert_eq!(err_code(&h.swap(&swapper, buy)), Some(107));
-    h.swap(&swapper, Swap { min_out: 5 * LOT, ..buy }).unwrap();
+    h.swap(
+        &swapper,
+        Swap {
+            min_out: 5 * LOT,
+            ..buy
+        },
+    )
+    .unwrap();
     assert_eq!(h.token(&swapper.base), 15 * LOT);
     let paid = 5 * 200_000 + (5u64 * 200_000 * 10).div_ceil(10_000);
     assert_eq!(h.token(&swapper.quote), 100_000_000 - paid);
     // Sell 3 lots into the bid.
-    h.swap(&swapper, Swap { side: 1, base_lots: 3, quote_budget: 0, limit_price: 1, min_out: 0, match_limit: 0 }).unwrap();
+    h.swap(
+        &swapper,
+        Swap {
+            side: 1,
+            base_lots: 3,
+            quote_budget: 0,
+            limit_price: 1,
+            min_out: 0,
+            match_limit: 0,
+        },
+    )
+    .unwrap();
     h.audit();
 
     let fees = h.with_market(|m| m.header().fees_accrued);
@@ -117,10 +147,13 @@ fn others_cannot_touch_my_orders_or_funds() {
     h.claim_seat(&mallory).unwrap();
     h.deposit(&a, true, 10 * LOT).unwrap();
     h.place(&a, limit(1, 100_000, 5)).unwrap();
-    let id = h.with_market(|m| { let i = m.best_ask(); order_id(m.order(i).unwrap().seq, i) });
+    let id = h.with_market(|m| {
+        let i = m.best_ask();
+        order_id(m.order(i).unwrap().seq, i)
+    });
     let ix = h.cancel_ix(&mallory, build::cancel_order(u32::MAX, id));
     assert_eq!(err_code(&h.send(&[ix], &[&mallory.kp])), Some(13)); // OrderNotFound
-    // Mallory cannot withdraw a's base: her own seat is empty.
+                                                                    // Mallory cannot withdraw a's base: her own seat is empty.
     assert!(h.withdraw(&mallory, true, 1).is_err());
     // Seat hint pointing at a's seat is ignored for mallory.
     let hint = h.seat(&a).unwrap();
@@ -142,7 +175,14 @@ fn expiry_uses_cluster_clock() {
     h.deposit(&b, false, 10_000_000).unwrap();
     let mut clock: solana_clock_shim::Clock = h.svm.get_sysvar();
     let now = clock.unix_timestamp as u64;
-    h.place(&a, OrderArgs { expires_at: now + 60, ..limit(1, 100_000, 5) }).unwrap();
+    h.place(
+        &a,
+        OrderArgs {
+            expires_at: now + 60,
+            ..limit(1, 100_000, 5)
+        },
+    )
+    .unwrap();
     clock.unix_timestamp += 120;
     h.svm.set_sysvar(&clock);
     h.place(&b, limit(0, 100_000, 5)).unwrap();

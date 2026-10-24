@@ -94,8 +94,12 @@ pub struct MarketHeader {
     pub best_bid: u32,
     /// Cached best ask node, or NIL.
     pub best_ask: u32,
+    /// Cached worst (lowest-priority) bid node, or NIL.
+    pub worst_bid: u32,
+    /// Cached worst (lowest-priority) ask node, or NIL.
+    pub worst_ask: u32,
     /// Reserved for upgrades.
-    pub reserved: [u64; 15],
+    pub reserved: [u64; 14],
 }
 
 const _: () = assert!(core::mem::size_of::<MarketHeader>() == HEADER_SIZE);

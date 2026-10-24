@@ -128,6 +128,8 @@ impl<'a> Market<'a> {
         h.free_head = NIL;
         h.best_bid = NIL;
         h.best_ask = NIL;
+        h.worst_bid = NIL;
+        h.worst_ask = NIL;
         h.status = MarketStatus::Active as u32;
         Ok(())
     }
@@ -162,8 +164,21 @@ impl<'a> Market<'a> {
         Ok(())
     }
 
-    pub(crate) fn require_status(&self, allowed: &[MarketStatus]) -> Result<()> {
-        if allowed.contains(&self.status()?) {
+    /// Fails unless the market accepts new orders.
+    #[inline(always)]
+    pub(crate) fn require_active(&self) -> Result<()> {
+        if self.header.status == MarketStatus::Active as u32 {
+            Ok(())
+        } else {
+            Err(EngineError::MarketNotActive)
+        }
+    }
+
+    /// Fails unless the market accepts cancels (active or cancel-only).
+    #[inline(always)]
+    pub(crate) fn require_cancellable(&self) -> Result<()> {
+        let s = self.header.status;
+        if s == MarketStatus::Active as u32 || s == MarketStatus::CancelOnly as u32 {
             Ok(())
         } else {
             Err(EngineError::MarketNotActive)
@@ -304,7 +319,7 @@ impl<'a> Market<'a> {
 
     /// Creates a seat for `owner`. Needs one free node.
     pub fn claim_seat(&mut self, owner: &[u8; 32]) -> Result<u32> {
-        self.require_status(&[MarketStatus::Active])?;
+        self.require_active()?;
         let key = TraderLeaf::key_for(owner);
         if rbtree::find(self.nodes, self.header.traders_root, key)? != NIL {
             return Err(EngineError::SeatAlreadyClaimed);
@@ -337,7 +352,7 @@ impl<'a> Market<'a> {
 
     /// Credits atoms the host already moved into the vaults.
     pub fn deposit(&mut self, i: u32, base_atoms: u64, quote_atoms: u64) -> Result<()> {
-        self.require_status(&[MarketStatus::Active])?;
+        self.require_active()?;
         let t = self.trader_mut(i)?;
         let b = t
             .base_free
@@ -519,6 +534,8 @@ impl<'a> Market<'a> {
         bad(bids + asks != h.order_count || traders != h.trader_count)?;
         bad(h.best_bid != rbtree::max(self.nodes, h.bids_root)?)?;
         bad(h.best_ask != rbtree::min(self.nodes, h.asks_root)?)?;
+        bad(h.worst_bid != rbtree::min(self.nodes, h.bids_root)?)?;
+        bad(h.worst_ask != rbtree::max(self.nodes, h.asks_root)?)?;
 
         let mut free = 0u32;
         let mut i = h.free_head;
