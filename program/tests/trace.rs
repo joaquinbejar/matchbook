@@ -111,3 +111,45 @@ fn trace_sweep() {
     }
     println!();
 }
+
+#[test]
+#[ignore = "profiling aid"]
+fn batch_parts() {
+    let mut h = H::new(
+        CreateMarketArgsLite {
+            initial_nodes: 4_000,
+            ..default_market()
+        },
+        false,
+    );
+    let mm = h.user(100_000 * LOT, 100_000_000_000_000);
+    h.claim_seat(&mm).unwrap();
+    h.deposit(&mm, true, 100_000 * LOT).unwrap();
+    h.deposit(&mm, false, 100_000_000_000_000).unwrap();
+    for i in 0..125u64 {
+        let asks: Vec<OrderArgs> = (0..8)
+            .map(|k| limit(1, 1_000_100 + i * 8 + k, 10))
+            .collect();
+        h.batch(&mm, 0, &[], &asks).unwrap();
+        let bids: Vec<OrderArgs> = (0..8).map(|k| limit(0, 999_900 - i * 8 - k, 10)).collect();
+        h.batch(&mm, 0, &[], &bids).unwrap();
+    }
+    let quotes: Vec<OrderArgs> = (0..5)
+        .map(|k| limit(1, 3_000_000 + k, 10))
+        .chain((0..5).map(|k| limit(0, 10_000 + k, 10)))
+        .collect();
+    h.batch(&mm, 0, &[], &[]).unwrap();
+    println!("empty batch: {}", h.last_cu);
+    for n in [1usize, 2, 5, 10] {
+        let r = h.batch(&mm, 0, &[], &quotes[..n]).unwrap();
+        println!("place {n}: {}", h.last_cu);
+        let ids: Vec<u64> = r
+            .return_data
+            .data
+            .chunks_exact(8)
+            .map(|c| u64::from_le_bytes(c.try_into().unwrap()))
+            .collect();
+        h.batch(&mm, 0, &ids, &[]).unwrap();
+        println!("cancel {n}: {}", h.last_cu);
+    }
+}

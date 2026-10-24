@@ -128,6 +128,8 @@ impl<'a> Market<'a> {
         h.free_head = NIL;
         h.best_bid = NIL;
         h.best_ask = NIL;
+        h.best_bid_price = 0;
+        h.best_ask_price = u64::MAX;
         h.worst_bid = NIL;
         h.worst_ask = NIL;
         h.status = MarketStatus::Active as u32;
@@ -546,6 +548,15 @@ impl<'a> Market<'a> {
         bad(bids + asks != h.order_count || traders != h.trader_count)?;
         bad(h.best_bid != rbtree::max(self.nodes, h.bids_root)?)?;
         bad(h.best_ask != rbtree::min(self.nodes, h.asks_root)?)?;
+        let price_of = |i: u32, none: u64| -> Result<u64> {
+            if i == NIL {
+                Ok(none)
+            } else {
+                Ok(self.order(i)?.price())
+            }
+        };
+        bad(h.best_bid_price != price_of(h.best_bid, 0)?)?;
+        bad(h.best_ask_price != price_of(h.best_ask, u64::MAX)?)?;
         bad(h.worst_bid != rbtree::min(self.nodes, h.bids_root)?)?;
         bad(h.worst_ask != rbtree::max(self.nodes, h.asks_root)?)?;
 

@@ -280,11 +280,8 @@ impl Tree<'_> {
     }
 
     fn insert_fixup(&mut self, mut z: u32) -> Result<()> {
-        loop {
-            let p = self.n(z)?.parent;
-            if p == NIL {
-                break;
-            }
+        let mut p = self.n(z)?.parent;
+        while p != NIL {
             let (p_red, g) = {
                 let pn = self.n(p)?;
                 (red(pn), pn.parent)
@@ -293,16 +290,17 @@ impl Tree<'_> {
                 break;
             }
             // A red parent is never the root, so `g` exists.
-            let (p_is_right, u) = {
+            let (p_is_right, u, gp) = {
                 let gn = self.n(g)?;
                 let r = gn.right == p;
-                (r, child(gn, !r))
+                (r, child(gn, !r), gn.parent)
             };
             if self.is_red(u)? {
                 self.paint(p, false)?;
                 self.paint(u, false)?;
                 self.paint(g, true)?;
                 z = g;
+                p = gp;
                 continue;
             }
             let mut p = p;
@@ -379,29 +377,36 @@ impl Tree<'_> {
     fn remove_fixup(&mut self, mut x: u32, mut xp: u32) -> Result<()> {
         while xp != NIL && !self.is_red(x)? {
             // `w` is x's sibling; it exists because x's side is one black short.
-            let x_is_left = self.n(xp)?.left == x;
-            let mut w = child(self.n(xp)?, x_is_left);
-            if self.is_red(w)? {
+            let (x_is_left, mut w, mut xpp) = {
+                let n = self.n(xp)?;
+                let l = n.left == x;
+                (l, child(n, l), n.parent)
+            };
+            if red(self.n(w)?) {
                 self.paint(w, false)?;
                 self.paint(xp, true)?;
                 self.rotate(xp, x_is_left)?;
+                // The old sibling is now xp's parent.
+                xpp = w;
                 w = child(self.n(xp)?, x_is_left);
             }
             let (near, far) = {
                 let wn = self.n(w)?;
                 (child(wn, !x_is_left), child(wn, x_is_left))
             };
-            if !self.is_red(near)? && !self.is_red(far)? {
-                self.paint(w, true)?;
+            let far_red = self.is_red(far)?;
+            if !far_red && !self.is_red(near)? {
+                let wn = self.m(w)?;
+                wn.flags |= FLAG_RED;
                 x = xp;
-                xp = self.n(x)?.parent;
+                xp = xpp;
                 continue;
             }
-            if !self.is_red(far)? {
+            if !far_red {
                 self.paint(near, false)?;
                 self.paint(w, true)?;
                 self.rotate(w, !x_is_left)?;
-                w = child(self.n(xp)?, x_is_left);
+                w = near;
             }
             let xp_red = red(self.n(xp)?);
             self.paint(w, xp_red)?;

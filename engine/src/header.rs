@@ -103,8 +103,12 @@ pub struct MarketHeader {
     pub expiring_orders: u32,
     /// Padding.
     pub padding: u32,
+    /// Price of the best bid, or 0 when there is none.
+    pub best_bid_price: u64,
+    /// Price of the best ask, or `u64::MAX` when there is none.
+    pub best_ask_price: u64,
     /// Reserved for upgrades.
-    pub reserved: [u64; 13],
+    pub reserved: [u64; 11],
 }
 
 const _: () = assert!(core::mem::size_of::<MarketHeader>() == HEADER_SIZE);

@@ -110,6 +110,32 @@ impl Market<'_> {
         Ok(u64::try_from(l).unwrap_or(u64::MAX))
     }
 
+    /// Whether a `side` order limited at `limit` reaches the opposite best.
+    #[inline(always)]
+    fn reaches(&self, side: Side, limit: u64) -> bool {
+        match side {
+            Side::Bid => limit >= self.header.best_ask_price,
+            Side::Ask => limit <= self.header.best_bid_price,
+        }
+    }
+
+    /// Recomputes the cached price of `side`'s best order.
+    fn refresh_best_price(&mut self, side: Side) -> Result<()> {
+        let b = self.best_of(side);
+        let price = if b != NIL {
+            self.node(b)?.key_hi
+        } else if side == Side::Ask {
+            u64::MAX
+        } else {
+            0
+        };
+        match side {
+            Side::Ask => self.header.best_ask_price = price,
+            Side::Bid => self.header.best_bid_price = price,
+        }
+        Ok(())
+    }
+
     fn best_of(&self, side: Side) -> u32 {
         match side {
             Side::Bid => self.header.best_bid,
@@ -200,6 +226,7 @@ impl Market<'_> {
             Side::Ask => {
                 if edges & EDGE_MIN != 0 {
                     h.best_ask = i;
+                    h.best_ask_price = price;
                 }
                 if edges & EDGE_MAX != 0 {
                     h.worst_ask = i;
@@ -211,6 +238,7 @@ impl Market<'_> {
                 }
                 if edges & EDGE_MAX != 0 {
                     h.best_bid = i;
+                    h.best_bid_price = price;
                 }
             }
         }
@@ -238,6 +266,17 @@ impl Market<'_> {
     /// Removes order `i`, returns its remaining funds to the owner's free
     /// balance and frees the node.
     fn remove_order(&mut self, i: u32, reason: OutReason, sink: &mut impl EventSink) -> Result<()> {
+        self.remove_order_with::<true>(i, reason, sink)
+    }
+
+    /// [`Self::remove_order`]; with `PRICE == false` the cached best price is
+    /// left stale for the caller to refresh with [`Self::refresh_best_price`].
+    fn remove_order_with<const PRICE: bool>(
+        &mut self,
+        i: u32,
+        reason: OutReason,
+        sink: &mut impl EventSink,
+    ) -> Result<()> {
         let (side, prev, next, trader, price, lots, expiring) = {
             let o = self.order(i)?;
             (
@@ -262,6 +301,9 @@ impl Market<'_> {
             match side {
                 Side::Ask => self.header.best_ask = nb,
                 Side::Bid => self.header.best_bid = nb,
+            }
+            if PRICE {
+                self.refresh_best_price(side)?;
             }
         }
         if worst == i {
@@ -404,7 +446,7 @@ impl Market<'_> {
             }
             if expired {
                 t.touched += 1;
-                self.remove_order(m, OutReason::Expired, sink)?;
+                self.remove_order_with::<false>(m, OutReason::Expired, sink)?;
                 continue;
             }
             if taker == Taker::Seat(maker) {
@@ -412,7 +454,7 @@ impl Market<'_> {
                 match stp {
                     SelfTradeBehavior::Abort => return Err(EngineError::SelfTrade),
                     SelfTradeBehavior::CancelProvide => {
-                        self.remove_order(m, OutReason::SelfTrade, sink)?;
+                        self.remove_order_with::<false>(m, OutReason::SelfTrade, sink)?;
                     }
                     SelfTradeBehavior::DecrementTake => {
                         let d = lots.min(maker_lots);
@@ -444,7 +486,10 @@ impl Market<'_> {
             t.touched += 1;
             let rebate = self.maker_rebate(quote);
             {
-                let base = self.base_for(fill)?;
+                let base = match book {
+                    Side::Ask => 0,
+                    Side::Bid => self.base_for(fill)?,
+                };
                 let mt = self.trader_mut(maker)?;
                 match book {
                     Side::Ask => mt.quote_free = add(mt.quote_free, add(quote, rebate)?)?,
@@ -477,7 +522,7 @@ impl Market<'_> {
                 });
             }
             if remaining == 0 {
-                self.remove_order(m, OutReason::Filled, sink)?;
+                self.remove_order_with::<false>(m, OutReason::Filled, sink)?;
             }
             lots -= fill;
             t.base_lots = add(t.base_lots, fill)?;
@@ -487,6 +532,7 @@ impl Market<'_> {
                 *b = sub(*b, add(quote, fee)?)?;
             }
         }
+        self.refresh_best_price(book)?;
         let h = &mut *self.header;
         h.fees_accrued = add(h.fees_accrued, sub(t.fee_atoms, rebates)?)?;
         h.total_base_lots_traded = h.total_base_lots_traded.saturating_add(t.base_lots);
@@ -546,10 +592,7 @@ impl Market<'_> {
         let match_limit = p.match_limit.max(1);
         // Whether the order reaches the opposite best at its limit price.
         // Most orders do not: they cannot match, slide or be blocked.
-        let reaches = {
-            let b = self.best_of(p.side.opposite());
-            b != NIL && crosses(p.side, self.order(b)?.price(), p.price)
-        };
+        let reaches = self.reaches(p.side, p.price);
 
         // Funds: enough for the whole order at the limit price, plus
         // worst-case fees when it can take liquidity.
@@ -581,9 +624,6 @@ impl Market<'_> {
                 }
             }
         };
-        if p.order_type.rests() {
-            self.require_space(1)?;
-        }
         if !reaches {
             if p.order_type == OrderType::FillOrKill {
                 return Err(EngineError::FillOrKillNotFilled);
@@ -604,6 +644,12 @@ impl Market<'_> {
                 out.rested_base_lots = p.base_lots;
             }
             return Ok(out);
+        }
+
+        // Fail before matching if the order could not rest afterwards. (On the
+        // passive path above, allocation fails before anything changes.)
+        if p.order_type.rests() {
+            self.require_space(1)?;
         }
 
         // Resolve post-only pricing against the first live opposite order.
@@ -647,10 +693,7 @@ impl Market<'_> {
         let mut out = PlaceOutcome::default();
         let mut remaining = p.base_lots;
         // A post-only order may have slid off the opposite best.
-        let reaches = {
-            let b = self.best_of(p.side.opposite());
-            b != NIL && crosses(p.side, self.order(b)?.price(), price)
-        };
+        let reaches = self.reaches(p.side, price);
         if reaches && p.order_type.takes() {
             let m = self.match_book(
                 taker,
