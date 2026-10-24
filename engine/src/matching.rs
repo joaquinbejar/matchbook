@@ -8,7 +8,7 @@ use bytemuck::cast_mut;
 use crate::events::{EventSink, FillEvent, OrderOutEvent, OutReason, PlacedEvent};
 use crate::market::{order_key, Market, TreeId};
 use crate::node::{
-    order_id, split_order_id, NodeTag, OrderLeaf, FLAG_ASK, MAX_ORDER_SEQ, NIL, ORDER_INDEX_BITS,
+    order_id, split_order_id, Node, NodeTag, OrderLeaf, FLAG_ASK, MAX_ORDER_SEQ, NIL, ORDER_INDEX_BITS,
 };
 use crate::rbtree::{EDGE_MAX, EDGE_MIN};
 use crate::{
@@ -165,19 +165,25 @@ impl Market<'_> {
             t.order_head = i;
             head
         };
-        {
-            let o: &mut OrderLeaf = cast_mut(self.node_mut(i)?);
-            o.tag = NodeTag::Order as u32;
-            o.flags = if side == Side::Ask { FLAG_ASK } else { 0 };
-            o.trader = trader;
-            o.prev = NIL;
-            o.next = head;
-            o.base_lots = base_lots;
-            o.client_order_id = client_order_id;
-            o.expires_at = expires_at;
-            o.seq = seq;
-        }
-        self.node_mut(i)?.set_key(key);
+        let (key_lo, key_hi) = (key as u64, (key >> 64) as u64);
+        *cast_mut::<Node, OrderLeaf>(self.node_mut(i)?) = OrderLeaf {
+            tag: NodeTag::Order as u32,
+            flags: if side == Side::Ask { FLAG_ASK } else { 0 },
+            left: NIL,
+            right: NIL,
+            parent: NIL,
+            extra: 0,
+            key_lo,
+            key_hi,
+            trader,
+            prev: NIL,
+            next: head,
+            kind: 0,
+            base_lots,
+            client_order_id,
+            expires_at,
+            seq,
+        };
         // Asks sort best-first (best = minimum), bids worst-first.
         let h = &*self.header;
         let (lo, hi) = match side {
@@ -522,8 +528,15 @@ impl Market<'_> {
             (t.base_free, t.quote_free)
         };
         let match_limit = p.match_limit.max(1);
+        // Whether the order reaches the opposite best at its limit price.
+        // Most orders do not: they cannot match, slide or be blocked.
+        let reaches = {
+            let b = self.best_of(p.side.opposite());
+            b != NIL && crosses(p.side, self.order(b)?.price(), p.price)
+        };
 
-        // Funds: enough for the whole order at the limit price, plus worst-case fees.
+        // Funds: enough for the whole order at the limit price, plus
+        // worst-case fees when it can take liquidity.
         let budget = match p.side {
             Side::Ask => {
                 if base_free < self.base_for(p.base_lots)? {
@@ -539,7 +552,7 @@ impl Market<'_> {
                     Some(b)
                 } else {
                     let notional = self.quote_for(p.base_lots, p.price)?;
-                    let need = if p.order_type.takes() {
+                    let need = if reaches && p.order_type.takes() {
                         let slack = u64::from(match_limit).min(p.base_lots);
                         add(add(notional, self.taker_fee(notional))?, slack)?
                     } else {
@@ -554,6 +567,27 @@ impl Market<'_> {
         };
         if p.order_type.rests() {
             self.require_space(1)?;
+        }
+        if !reaches {
+            if p.order_type == OrderType::FillOrKill {
+                return Err(EngineError::FillOrKillNotFilled);
+            }
+            let mut out = PlaceOutcome::default();
+            if p.order_type.rests() {
+                let id = self.insert_order(
+                    trader,
+                    p.side,
+                    p.price,
+                    p.base_lots,
+                    p.client_order_id,
+                    p.expires_at,
+                    sink,
+                )?;
+                out.order_id = Some(id);
+                out.rested_price = p.price;
+                out.rested_base_lots = p.base_lots;
+            }
+            return Ok(out);
         }
 
         // Resolve post-only pricing against the first live opposite order.
@@ -596,8 +630,7 @@ impl Market<'_> {
         }
         let mut out = PlaceOutcome::default();
         let mut remaining = p.base_lots;
-        // Most orders are passive: when the opposite best does not cross,
-        // there is nothing to match and nothing that could block resting.
+        // A post-only order may have slid off the opposite best.
         let reaches = {
             let b = self.best_of(p.side.opposite());
             b != NIL && crosses(p.side, self.order(b)?.price(), price)

@@ -223,15 +223,17 @@ impl<'a> Market<'a> {
         } else {
             return Err(EngineError::OutOfSpace);
         };
-        *self.node_mut(i)? = bytemuck::Zeroable::zeroed();
+        // Callers write the whole node.
         Ok(i)
     }
 
     pub(crate) fn release(&mut self, i: u32) -> Result<()> {
         let head = self.header.free_head;
         let n = self.node_mut(i)?;
-        *n = bytemuck::Zeroable::zeroed();
+        // Only the tag and the free-list link matter; leftover bytes are
+        // overwritten when the node is handed out again.
         n.tag = NodeTag::Free as u32;
+        n.flags = 0;
         n.extra = head;
         self.header.free_head = i;
         self.header.free_list_len = self.header.free_list_len.saturating_add(1);
@@ -327,12 +329,14 @@ impl<'a> Market<'a> {
         self.require_space(1)?;
         let i = self.alloc()?;
         {
-            let t: &mut TraderLeaf = cast_mut(self.node_mut(i)?);
+            let n = self.node_mut(i)?;
+            *n = bytemuck::Zeroable::zeroed();
+            n.set_key(key);
+            let t: &mut TraderLeaf = cast_mut(n);
             t.tag = NodeTag::Trader as u32;
             t.order_head = NIL;
             t.owner = *owner;
         }
-        self.node_mut(i)?.set_key(key);
         self.tree(TreeId::Traders).insert(i)?;
         self.header.trader_count = self.header.trader_count.saturating_add(1);
         Ok(i)

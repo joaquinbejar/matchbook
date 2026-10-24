@@ -214,7 +214,9 @@ impl Model {
                 }
                 None => {
                     let n = p.base_lots * p.price * QLS;
-                    let need = if takes {
+                    // The fee buffer is needed only if the order reaches the best ask.
+                    let reaches = self.book(Side::Ask).first().is_some_and(|&i| self.orders[i].price <= p.price);
+                    let need = if takes && reaches {
                         n + fee(n) + u64::from(ml).min(p.base_lots)
                     } else {
                         n
@@ -453,7 +455,7 @@ fn model_snapshot(
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig { cases: 2_000, .. ProptestConfig::default() })]
+    #![proptest_config(ProptestConfig { cases: std::env::var("MODEL_CASES").ok().and_then(|v| v.parse().ok()).unwrap_or(2_000), .. ProptestConfig::default() })]
 
     #[test]
     fn engine_matches_model(ops in proptest::collection::vec(op(), 1..120)) {
