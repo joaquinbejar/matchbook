@@ -5,6 +5,7 @@ mod common;
 
 use common::*;
 use matchbook_program::instruction::{build, OrderArgs, SwapArgs};
+use matchbook_program::engine::order_id;
 use solana_signer::Signer;
 
 const LOT: u64 = 1_000_000;
@@ -116,7 +117,7 @@ fn others_cannot_touch_my_orders_or_funds() {
     h.claim_seat(&mallory).unwrap();
     h.deposit(&a, true, 10 * LOT).unwrap();
     h.place(&a, limit(1, 100_000, 5)).unwrap();
-    let id = h.with_market(|m| m.order(m.best_ask()).unwrap().seq);
+    let id = h.with_market(|m| { let i = m.best_ask(); order_id(m.order(i).unwrap().seq, i) });
     let ix = h.cancel_ix(&mallory, build::cancel_order(u32::MAX, id));
     assert_eq!(err_code(&h.send(&[ix], &[&mallory.kp])), Some(13)); // OrderNotFound
     // Mallory cannot withdraw a's base: her own seat is empty.

@@ -397,7 +397,7 @@ impl<'a> Market<'a> {
             let o = self.order(i)?;
             if !o.is_expired(now) {
                 let owner = self.trader(o.trader)?.owner;
-                if !f(resting(o, owner)) {
+                if !f(resting(o, i, owner)) {
                     break;
                 }
             }
@@ -450,7 +450,7 @@ impl<'a> Market<'a> {
         let mut i = t.order_head;
         while i != NIL {
             let o = self.order(i)?;
-            f(i, resting(o, owner));
+            f(i, resting(o, i, owner));
             i = o.next;
         }
         Ok(())
@@ -480,14 +480,13 @@ impl<'a> Market<'a> {
     }
 
     pub(crate) fn base_for(&self, lots: u64) -> Result<u64> {
-        lots.checked_mul(self.header.base_lot_size)
-            .ok_or(EngineError::Overflow)
+        crate::math::mul(lots, self.header.base_lot_size).ok_or(EngineError::Overflow)
     }
 
     #[inline]
     pub(crate) fn quote_for(&self, lots: u64, price: u64) -> Result<u64> {
-        lots.checked_mul(price)
-            .and_then(|v| v.checked_mul(self.header.quote_lot_size))
+        crate::math::mul(lots, price)
+            .and_then(|v| crate::math::mul(v, self.header.quote_lot_size))
             .ok_or(EngineError::Overflow)
     }
 
@@ -562,9 +561,9 @@ pub(crate) fn order_key(side: Side, price: u64, seq: u64) -> u128 {
     (u128::from(price) << 64) | u128::from(lo)
 }
 
-pub(crate) fn resting(o: &OrderLeaf, owner: [u8; 32]) -> RestingOrder {
+pub(crate) fn resting(o: &OrderLeaf, index: u32, owner: [u8; 32]) -> RestingOrder {
     RestingOrder {
-        order_id: o.seq,
+        order_id: crate::node::order_id(o.seq, index),
         side: if o.flags & FLAG_ASK != 0 { Side::Ask } else { Side::Bid },
         price: o.price(),
         base_lots: o.base_lots,

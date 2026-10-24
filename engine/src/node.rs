@@ -12,6 +12,25 @@ pub const NODE_SIZE: usize = 88;
 /// Null node index.
 pub const NIL: u32 = u32::MAX;
 
+/// Low bits of an order id that hold the order's node index, so a cancel
+/// finds its order in O(1) without scanning or a client-side hint.
+pub const ORDER_INDEX_BITS: u32 = 24;
+
+/// Largest sequence number an order id can carry (2^40 - 1).
+pub const MAX_ORDER_SEQ: u64 = (1 << (64 - ORDER_INDEX_BITS)) - 1;
+
+/// Builds the public order id from a sequence number and a node index.
+#[inline]
+pub const fn order_id(seq: u64, index: u32) -> u64 {
+    (seq << ORDER_INDEX_BITS) | index as u64
+}
+
+/// Splits a public order id into `(sequence number, node index)`.
+#[inline]
+pub const fn split_order_id(id: u64) -> (u64, u32) {
+    (id >> ORDER_INDEX_BITS, (id & ((1 << ORDER_INDEX_BITS) - 1)) as u32)
+}
+
 pub(crate) const FLAG_RED: u32 = 1;
 pub(crate) const FLAG_ASK: u32 = 1 << 1;
 

@@ -8,7 +8,7 @@ use bytemuck::cast_mut;
 use crate::events::{EventSink, FillEvent, OrderOutEvent, OutReason, PlacedEvent};
 use crate::header::MarketStatus;
 use crate::market::{order_key, Market, TreeId};
-use crate::node::{NodeTag, OrderLeaf, FLAG_ASK, NIL};
+use crate::node::{order_id, split_order_id, NodeTag, OrderLeaf, FLAG_ASK, MAX_ORDER_SEQ, NIL, ORDER_INDEX_BITS};
 use crate::{
     EngineError, OrderParams, OrderType, PlaceOutcome, Result, SelfTradeBehavior, Side,
     SwapOutcome, SwapParams,
@@ -60,7 +60,7 @@ impl Market<'_> {
     #[inline]
     pub fn taker_fee(&self, quote: u64) -> u64 {
         let bps = u64::from(self.header.taker_fee_bps);
-        match quote.checked_mul(bps) {
+        match crate::math::mul(quote, bps) {
             Some(v) => v.div_ceil(BPS as u64),
             None => (u128::from(quote) * u128::from(bps)).div_ceil(BPS) as u64,
         }
@@ -70,7 +70,7 @@ impl Market<'_> {
     #[inline]
     pub fn maker_rebate(&self, quote: u64) -> u64 {
         let bps = u64::from(self.header.maker_rebate_bps);
-        match quote.checked_mul(bps) {
+        match crate::math::mul(quote, bps) {
             Some(v) => v / BPS as u64,
             None => (u128::from(quote) * u128::from(bps) / BPS) as u64,
         }
@@ -117,8 +117,14 @@ impl Market<'_> {
         sink: &mut impl EventSink,
     ) -> Result<u64> {
         let seq = self.header.seq_num.checked_add(1).ok_or(EngineError::Overflow)?;
+        if seq > MAX_ORDER_SEQ {
+            return Err(EngineError::Overflow);
+        }
         let key = order_key(side, price, seq);
         let i = self.alloc()?;
+        if i >> ORDER_INDEX_BITS != 0 {
+            return Err(EngineError::OutOfSpace);
+        }
         let head = self.trader(trader)?.order_head;
         {
             let o: &mut OrderLeaf = cast_mut(self.node_mut(i)?);
@@ -155,16 +161,17 @@ impl Market<'_> {
         self.header.seq_num = seq;
         self.header.order_count = self.header.order_count.saturating_add(1);
         let owner = self.trader(trader)?.owner;
+        let id = order_id(seq, i);
         sink.on_placed(&PlacedEvent {
             owner,
-            order_id: seq,
+            order_id: id,
             client_order_id,
             side,
             price,
             base_lots,
             expires_at,
         });
-        Ok(seq)
+        Ok(id)
     }
 
     /// Removes order `i`, returns its remaining funds to the owner's free
@@ -194,7 +201,7 @@ impl Market<'_> {
         let owner = self.trader(o.trader)?.owner;
         sink.on_out(&OrderOutEvent {
             owner,
-            order_id: o.seq,
+            order_id: order_id(o.seq, i),
             client_order_id: o.client_order_id,
             side,
             price: o.price(),
@@ -377,7 +384,7 @@ impl Market<'_> {
             let maker_owner = self.trader(o.trader)?.owner;
             sink.on_fill(&FillEvent {
                 maker: maker_owner,
-                maker_order_id: o.seq,
+                maker_order_id: order_id(o.seq, m),
                 maker_client_order_id: o.client_order_id,
                 taker: taker_owner,
                 taker_side: side,
@@ -564,15 +571,17 @@ impl Market<'_> {
 
     /// Finds a trader's order node by id.
     pub fn find_order(&self, trader: u32, order_id: u64) -> Result<u32> {
-        let mut i = self.trader(trader)?.order_head;
-        while i != NIL {
-            let o = self.order(i)?;
-            if o.seq == order_id {
-                return Ok(i);
+        let (seq, i) = split_order_id(order_id);
+        match self.nodes.get(i as usize) {
+            Some(n) if n.is(NodeTag::Order) => {
+                let o: &OrderLeaf = bytemuck::cast_ref(n);
+                if o.seq == seq && o.trader == trader {
+                    return Ok(i);
+                }
+                Err(EngineError::OrderNotFound)
             }
-            i = o.next;
+            _ => Err(EngineError::OrderNotFound),
         }
-        Err(EngineError::OrderNotFound)
     }
 
     /// Cancels one order by id.

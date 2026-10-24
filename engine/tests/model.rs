@@ -361,6 +361,9 @@ proptest! {
             }
         }
         let mut now = 0u64;
+        // Model sequence number -> engine order id (which also encodes the node index).
+        let mut ids: std::collections::HashMap<u64, u64> = std::collections::HashMap::new();
+        let mut stale: Vec<u64> = vec![];
         for op in ops {
             if let Op::Grow(n) = op {
                 data.extend(std::iter::repeat_n(0u8, n as usize * NODE_SIZE));
@@ -380,15 +383,30 @@ proptest! {
                         quote_budget: budget,
                         match_limit: ml,
                     };
-                    let a = m.place_order(seats[t], &p, now, &mut NoopSink);
+                    let mut a = m.place_order(seats[t], &p, now, &mut NoopSink);
                     let b = md.place(t, &p, now);
+                    if let Ok(out) = a.as_mut() {
+                        if let Some(id) = out.order_id {
+                            let (seq, _) = split_order_id(id);
+                            ids.insert(seq, id);
+                            out.order_id = Some(seq);
+                        }
+                    }
                     prop_assert_eq!(a, b, "place {:?}", p);
                 }
                 Op::Cancel { t, nth } => {
                     let mine: Vec<u64> = md.orders.iter().filter(|o| o.trader == t).map(|o| o.seq).collect();
+                    // Past the trader's live orders, try a stale id whose node may have been reused.
                     let id = mine.get(nth).copied().unwrap_or(u64::MAX);
-                    let a = m.cancel_order(seats[t], id, &mut NoopSink);
-                    let b = if mine.contains(&id) { md.remove(id); Ok(()) } else { Err(EngineError::OrderNotFound) };
+                    let eid = match ids.get(&id) {
+                        Some(&e) => e,
+                        // Otherwise another trader's live order, then a stale id.
+                        None => md.orders.iter().find(|o| o.trader != t).filter(|_| nth % 2 == 0)
+                            .map(|o| ids[&o.seq])
+                            .unwrap_or_else(|| stale.get(nth).copied().unwrap_or(u64::MAX)),
+                    };
+                    let a = m.cancel_order(seats[t], eid, &mut NoopSink);
+                    let b = if mine.contains(&id) { md.remove(id); stale.push(eid); Ok(()) } else { Err(EngineError::OrderNotFound) };
                     prop_assert_eq!(a, b);
                 }
                 Op::CancelCoid { t, coid } => {
@@ -405,7 +423,7 @@ proptest! {
                 Op::Reduce { t, nth, lots } => {
                     let mine: Vec<u64> = md.orders.iter().filter(|o| o.trader == t).map(|o| o.seq).collect();
                     let Some(&id) = mine.get(nth) else { continue };
-                    let a = m.reduce_order(seats[t], id, lots, &mut NoopSink);
+                    let a = m.reduce_order(seats[t], ids[&id], lots, &mut NoopSink);
                     let i = md.orders.iter().position(|o| o.seq == id).unwrap();
                     let cur = md.orders[i].lots;
                     let b = if lots >= cur { Err(EngineError::InvalidQuantity) }

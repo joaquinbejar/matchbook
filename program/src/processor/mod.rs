@@ -211,8 +211,11 @@ fn place_order(accounts: &mut [AccountView], r: &mut Reader<'_>) -> ProgramResul
     let ts = now()?;
     let mut data = market.try_borrow_mut()?;
     let mut m = Market::load_mut(&mut data).map_err(engine)?;
-    let t = m.resolve_trader(&owner_bytes(owner), Some(hint)).map_err(engine)?;
-    m.place_order(t, &p, ts, &mut LogSink).map_err(engine)?;
+    let me = owner_bytes(owner);
+    let t = m.resolve_trader(&me, Some(hint)).map_err(engine)?;
+    let mut s = LogSink::new();
+    let out = m.place_order(t, &p, ts, &mut s).map_err(engine)?;
+    s.take(&me, p.side, out.filled_base_lots, out.filled_quote_atoms, out.fee_atoms);
     Ok(())
 }
 
@@ -226,7 +229,7 @@ fn cancel(ix: Ix, accounts: &mut [AccountView], r: &mut Reader<'_>) -> ProgramRe
     let mut data = market.try_borrow_mut()?;
     let mut m = Market::load_mut(&mut data).map_err(engine)?;
     let t = m.resolve_trader(&owner_bytes(owner), Some(hint)).map_err(engine)?;
-    let s = &mut LogSink;
+    let s = &mut LogSink::new();
     match ix {
         Ix::CancelOrder => m.cancel_order(t, r.u64()?, s),
         Ix::CancelAll => {
@@ -263,8 +266,9 @@ fn batch_update(accounts: &mut [AccountView], r: &mut Reader<'_>) -> ProgramResu
     let ts = now()?;
     let mut data = market.try_borrow_mut()?;
     let mut m = Market::load_mut(&mut data).map_err(engine)?;
-    let t = m.resolve_trader(&owner_bytes(owner), Some(hint)).map_err(engine)?;
-    let s = &mut LogSink;
+    let me = owner_bytes(owner);
+    let t = m.resolve_trader(&me, Some(hint)).map_err(engine)?;
+    let s = &mut LogSink::new();
     if cancel_all != 0 {
         let side = match cancel_all {
             1 => Some(Side::Bid),
@@ -283,7 +287,8 @@ fn batch_update(accounts: &mut [AccountView], r: &mut Reader<'_>) -> ProgramResu
     }
     for _ in 0..n_orders {
         let p = OrderArgs::read(r)?.to_params()?;
-        m.place_order(t, &p, ts, s).map_err(engine)?;
+        let out = m.place_order(t, &p, ts, s).map_err(engine)?;
+        s.take(&me, p.side, out.filled_base_lots, out.filled_quote_atoms, out.fee_atoms);
     }
     Ok(())
 }
@@ -299,6 +304,7 @@ fn swap(accounts: &mut [AccountView], r: &mut Reader<'_>) -> ProgramResult {
     let a = SwapArgs::read(r)?;
     let side = Side::from_u8(a.side).ok_or(MatchbookError::InvalidInstructionData)?;
     let ts = now()?;
+    let mut sink = LogSink::new();
     let (out, bump) = {
         let mut data = market.try_borrow_mut()?;
         let mut m = Market::load_mut(&mut data).map_err(engine)?;
@@ -315,9 +321,10 @@ fn swap(accounts: &mut [AccountView], r: &mut Reader<'_>) -> ProgramResult {
                     match_limit: if a.match_limit == 0 { 64 } else { a.match_limit },
                 },
                 ts,
-                &mut LogSink,
+                &mut sink,
             )
             .map_err(engine)?;
+        sink.take(&owner_bytes(user), side, out.base_lots, out.quote_atoms, out.fee_atoms);
         (out, [m.header().host_bump as u8])
     };
     let base_dec = mint_decimals(base_mint, base_tp)?;
@@ -392,6 +399,6 @@ fn prune_expired(accounts: &mut [AccountView], r: &mut Reader<'_>) -> ProgramRes
     let ts = now()?;
     let mut data = market.try_borrow_mut()?;
     let mut m = Market::load_mut(&mut data).map_err(engine)?;
-    m.prune_expired(ts, limit, &mut LogSink).map_err(engine)?;
+    m.prune_expired(ts, limit, &mut LogSink::new()).map_err(engine)?;
     Ok(())
 }
