@@ -5,6 +5,17 @@ use litesvm::{types::{FailedTransactionMetadata, TransactionMetadata}, LiteSVM};
 use litesvm_token::CreateMint;
 use matchbook_program::engine::{Market, MarketTotals, TraderLeaf};
 use matchbook_program::instruction::{build, CreateMarketArgs, OrderArgs, SwapArgs};
+
+/// Swap request as tests write it (the side travels in the instruction header).
+#[derive(Clone, Copy)]
+pub struct Swap {
+    pub side: u8,
+    pub base_lots: u64,
+    pub quote_budget: u64,
+    pub limit_price: u64,
+    pub min_out: u64,
+    pub match_limit: u32,
+}
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
@@ -105,6 +116,7 @@ impl H {
             maker_rebate_bps: args.maker_rebate_bps,
             initial_nodes: args.initial_nodes,
             authority: h.authority.pubkey().to_bytes(),
+            reserved: 0,
         });
         let mut ixs = vec![];
         if args.initial_nodes > 100 {
@@ -256,8 +268,9 @@ impl H {
         self.ix(data, vec![AccountMeta::new_readonly(u.key(), true), AccountMeta::new(self.market, false)])
     }
 
-    pub fn swap(&mut self, u: &User, a: SwapArgs) -> Result<TransactionMetadata, FailedTransactionMetadata> {
-        let ix = self.ix(build::swap(&a), vec![
+    pub fn swap(&mut self, u: &User, s: Swap) -> Result<TransactionMetadata, FailedTransactionMetadata> {
+        let a = SwapArgs { base_lots: s.base_lots, quote_budget: s.quote_budget, limit_price: s.limit_price, min_out: s.min_out, match_limit: s.match_limit, reserved: 0 };
+        let ix = self.ix(build::swap(s.side, &a), vec![
             AccountMeta::new_readonly(u.key(), true),
             AccountMeta::new(self.market, false),
             AccountMeta::new(u.base, false),
@@ -335,7 +348,7 @@ pub fn default_market() -> CreateMarketArgsLite {
 }
 
 pub fn limit(side: u8, price: u64, lots: u64) -> OrderArgs {
-    OrderArgs { side, order_type: 0, self_trade: 0, price, base_lots: lots, client_order_id: 0, expires_at: 0, quote_budget: 0, match_limit: 0 }
+    OrderArgs::limit(side, price, lots)
 }
 
 pub fn err_code(r: &Result<TransactionMetadata, FailedTransactionMetadata>) -> Option<u32> {

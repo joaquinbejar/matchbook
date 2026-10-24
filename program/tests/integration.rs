@@ -4,7 +4,7 @@
 mod common;
 
 use common::*;
-use matchbook_program::instruction::{build, OrderArgs, SwapArgs};
+use matchbook_program::instruction::{build, OrderArgs};
 use matchbook_program::engine::order_id;
 use solana_signer::Signer;
 
@@ -54,14 +54,14 @@ fn swap_fees_and_authority() {
     h.place(&maker, limit(0, 190_000, 10)).unwrap();
 
     // Buy up to 5 lots, too-strict min_out fails atomically.
-    let buy = SwapArgs { side: 0, base_lots: 5, quote_budget: 10_000_000, limit_price: 200_000, min_out: 6 * LOT, match_limit: 0 };
+    let buy = Swap { side: 0, base_lots: 5, quote_budget: 10_000_000, limit_price: 200_000, min_out: 6 * LOT, match_limit: 0 };
     assert_eq!(err_code(&h.swap(&swapper, buy)), Some(107));
-    h.swap(&swapper, SwapArgs { min_out: 5 * LOT, ..buy }).unwrap();
+    h.swap(&swapper, Swap { min_out: 5 * LOT, ..buy }).unwrap();
     assert_eq!(h.token(&swapper.base), 15 * LOT);
     let paid = 5 * 200_000 + (5u64 * 200_000 * 10).div_ceil(10_000);
     assert_eq!(h.token(&swapper.quote), 100_000_000 - paid);
     // Sell 3 lots into the bid.
-    h.swap(&swapper, SwapArgs { side: 1, base_lots: 3, quote_budget: 0, limit_price: 1, min_out: 0, match_limit: 0 }).unwrap();
+    h.swap(&swapper, Swap { side: 1, base_lots: 3, quote_budget: 0, limit_price: 1, min_out: 0, match_limit: 0 }).unwrap();
     h.audit();
 
     let fees = h.with_market(|m| m.header().fees_accrued);

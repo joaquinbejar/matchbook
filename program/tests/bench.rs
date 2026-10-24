@@ -4,7 +4,7 @@
 mod common;
 
 use common::*;
-use matchbook_program::instruction::{build, OrderArgs, SwapArgs};
+use matchbook_program::instruction::{build, OrderArgs};
 
 const LOT: u64 = 1_000_000;
 
@@ -59,9 +59,9 @@ fn compute_units() {
     rows.push(("take: limit ask, 2 fills + rest remainder".into(), h.last_cu));
 
     let swapper = h.user(1_000 * LOT, 1_000_000_000_000);
-    h.swap(&swapper, SwapArgs { side: 0, base_lots: 5, quote_budget: u64::MAX / 2, limit_price: 5_000_000, min_out: 0, match_limit: 0 }).unwrap();
+    h.swap(&swapper, Swap { side: 0, base_lots: 5, quote_budget: u64::MAX / 2, limit_price: 5_000_000, min_out: 0, match_limit: 0 }).unwrap();
     rows.push(("swap (no seat): 1 fill".into(), h.last_cu));
-    h.swap(&swapper, SwapArgs { side: 1, base_lots: 50, quote_budget: 0, limit_price: 1, min_out: 0, match_limit: 0 }).unwrap();
+    h.swap(&swapper, Swap { side: 1, base_lots: 50, quote_budget: 0, limit_price: 1, min_out: 0, match_limit: 0 }).unwrap();
     rows.push(("swap (no seat): 5 fills".into(), h.last_cu));
 
     let mine = ids(&h, &mm);

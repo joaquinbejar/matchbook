@@ -9,6 +9,10 @@ repository.workspace = true
 keywords = ["orderbook", "matching-engine", "solana", "clob", "no-std"]
 categories = ["no-std", "finance", "data-structures"]
 
+[features]
+# Logs remaining compute units at instrumented points (SBF only).
+cu-trace = []
+
 [dependencies]
 bytemuck = { workspace = true }
 

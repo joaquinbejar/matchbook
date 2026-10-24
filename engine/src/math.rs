@@ -28,7 +28,18 @@ mod tests {
 
     #[test]
     fn matches_checked_mul() {
-        let edges = [0, 1, 2, 3, u32::MAX as u64, u32::MAX as u64 + 1, 1 << 63, u64::MAX / 2, u64::MAX - 1, u64::MAX];
+        let edges = [
+            0,
+            1,
+            2,
+            3,
+            u32::MAX as u64,
+            u32::MAX as u64 + 1,
+            1 << 63,
+            u64::MAX / 2,
+            u64::MAX - 1,
+            u64::MAX,
+        ];
         for &a in &edges {
             for &b in &edges {
                 assert_eq!(mul(a, b), a.checked_mul(b), "{a} * {b}");

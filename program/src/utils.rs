@@ -28,6 +28,19 @@ pub(crate) fn log_data(data: &[u8]) {
     let _ = data;
 }
 
+/// Sets the instruction's return data.
+#[inline(always)]
+pub(crate) fn set_return_data(data: &[u8]) {
+    #[cfg(target_os = "solana")]
+    // SAFETY: `data` is a valid byte slice; the runtime copies it.
+    #[allow(unsafe_code)]
+    unsafe {
+        pinocchio::syscalls::sol_set_return_data(data.as_ptr(), data.len() as u64);
+    }
+    #[cfg(not(target_os = "solana"))]
+    let _ = data;
+}
+
 pub(crate) fn require_signer(a: &AccountView) -> ProgramResult {
     if a.is_signer() {
         Ok(())

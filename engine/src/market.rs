@@ -89,10 +89,8 @@ fn split(data: &mut [u8]) -> Result<(&mut MarketHeader, &mut [Node])> {
     let rest = rest
         .get_mut(..count * NODE_SIZE)
         .ok_or(EngineError::InvalidAccountData)?;
-    let header =
-        bytemuck::try_from_bytes_mut(h).map_err(|_| EngineError::InvalidAccountData)?;
-    let nodes =
-        bytemuck::try_cast_slice_mut(rest).map_err(|_| EngineError::InvalidAccountData)?;
+    let header = bytemuck::try_from_bytes_mut(h).map_err(|_| EngineError::InvalidAccountData)?;
+    let nodes = bytemuck::try_cast_slice_mut(rest).map_err(|_| EngineError::InvalidAccountData)?;
     Ok((header, nodes))
 }
 
@@ -283,7 +281,11 @@ impl<'a> Market<'a> {
 
     /// Finds the seat of `owner`.
     pub fn find_trader(&self, owner: &[u8; 32]) -> Result<Option<u32>> {
-        let i = rbtree::find(self.nodes, self.header.traders_root, TraderLeaf::key_for(owner))?;
+        let i = rbtree::find(
+            self.nodes,
+            self.header.traders_root,
+            TraderLeaf::key_for(owner),
+        )?;
         if i == NIL {
             return Ok(None);
         }
@@ -337,8 +339,14 @@ impl<'a> Market<'a> {
     pub fn deposit(&mut self, i: u32, base_atoms: u64, quote_atoms: u64) -> Result<()> {
         self.require_status(&[MarketStatus::Active])?;
         let t = self.trader_mut(i)?;
-        let b = t.base_free.checked_add(base_atoms).ok_or(EngineError::Overflow)?;
-        let q = t.quote_free.checked_add(quote_atoms).ok_or(EngineError::Overflow)?;
+        let b = t
+            .base_free
+            .checked_add(base_atoms)
+            .ok_or(EngineError::Overflow)?;
+        let q = t
+            .quote_free
+            .checked_add(quote_atoms)
+            .ok_or(EngineError::Overflow)?;
         t.base_free = b;
         t.quote_free = q;
         Ok(())
@@ -444,7 +452,11 @@ impl<'a> Market<'a> {
     }
 
     /// Visits a trader's orders, newest first.
-    pub fn for_each_trader_order(&self, trader: u32, mut f: impl FnMut(u32, RestingOrder)) -> Result<()> {
+    pub fn for_each_trader_order(
+        &self,
+        trader: u32,
+        mut f: impl FnMut(u32, RestingOrder),
+    ) -> Result<()> {
         let t = self.trader(trader)?;
         let owner = t.owner;
         let mut i = t.order_head;
@@ -497,7 +509,13 @@ impl<'a> Market<'a> {
         let bids = rbtree::validate(self.nodes, h.bids_root)?;
         let asks = rbtree::validate(self.nodes, h.asks_root)?;
         let traders = rbtree::validate(self.nodes, h.traders_root)?;
-        let bad = |c: bool| if c { Err(EngineError::Corrupted) } else { Ok(()) };
+        let bad = |c: bool| {
+            if c {
+                Err(EngineError::Corrupted)
+            } else {
+                Ok(())
+            }
+        };
         bad(bids + asks != h.order_count || traders != h.trader_count)?;
         bad(h.best_bid != rbtree::max(self.nodes, h.bids_root)?)?;
         bad(h.best_ask != rbtree::min(self.nodes, h.asks_root)?)?;
@@ -564,7 +582,11 @@ pub(crate) fn order_key(side: Side, price: u64, seq: u64) -> u128 {
 pub(crate) fn resting(o: &OrderLeaf, index: u32, owner: [u8; 32]) -> RestingOrder {
     RestingOrder {
         order_id: crate::node::order_id(o.seq, index),
-        side: if o.flags & FLAG_ASK != 0 { Side::Ask } else { Side::Bid },
+        side: if o.flags & FLAG_ASK != 0 {
+            Side::Ask
+        } else {
+            Side::Bid
+        },
         price: o.price(),
         base_lots: o.base_lots,
         client_order_id: o.client_order_id,

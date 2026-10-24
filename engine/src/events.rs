@@ -82,7 +82,18 @@ pub struct PlacedEvent {
 }
 
 /// Receives events. All methods default to doing nothing.
+///
+/// The constants and [`EventSink::wants_out`] let a sink opt out of events it
+/// ignores, so the engine does not spend compute building them.
 pub trait EventSink {
+    /// Whether [`EventSink::on_fill`] is used.
+    const FILLS: bool = true;
+    /// Whether [`EventSink::on_placed`] is used.
+    const PLACED: bool = true;
+    /// Whether [`EventSink::on_out`] is used for orders leaving for `reason`.
+    fn wants_out(&self, _reason: OutReason) -> bool {
+        true
+    }
     /// A fill happened.
     fn on_fill(&mut self, _e: &FillEvent) {}
     /// An order left the book.
@@ -95,4 +106,10 @@ pub trait EventSink {
 #[derive(Debug, Default, Clone, Copy)]
 pub struct NoopSink;
 
-impl EventSink for NoopSink {}
+impl EventSink for NoopSink {
+    const FILLS: bool = false;
+    const PLACED: bool = false;
+    fn wants_out(&self, _reason: OutReason) -> bool {
+        false
+    }
+}

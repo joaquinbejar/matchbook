@@ -14,6 +14,8 @@ crate-type = ["cdylib", "lib"]
 default = []
 no-entrypoint = []
 client = []
+# Logs remaining compute units at instrumented points.
+cu-trace = ["matchbook-engine/cu-trace"]
 
 [dependencies]
 matchbook-engine = { workspace = true }

@@ -1,7 +1,12 @@
 //! Differential testing: random operation sequences run against the engine
 //! and a naive Vec-based reference model must produce identical results,
 //! and the engine's invariants must hold after every step.
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing, missing_docs)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    missing_docs
+)]
 
 use matchbook_engine::*;
 use proptest::prelude::*;
@@ -52,7 +57,9 @@ impl Model {
     }
     /// Indices of `side` orders in priority order.
     fn book(&self, side: Side) -> Vec<usize> {
-        let mut v: Vec<usize> = (0..self.orders.len()).filter(|&i| self.orders[i].side == side).collect();
+        let mut v: Vec<usize> = (0..self.orders.len())
+            .filter(|&i| self.orders[i].side == side)
+            .collect();
         v.sort_by(|&a, &b| {
             let (x, y) = (&self.orders[a], &self.orders[b]);
             let pc = match side {
@@ -100,7 +107,9 @@ impl Model {
     ) -> Result<(u64, u64, u64, u32, u64)> {
         let (mut fl, mut fq, mut ff, mut touched) = (0, 0, 0, 0u32);
         while lots > 0 && touched < ml {
-            let Some(&i) = self.book(side.opposite()).first() else { break };
+            let Some(&i) = self.book(side.opposite()).first() else {
+                break;
+            };
             let o = self.orders[i].clone();
             if !crosses(side, o.price, limit) {
                 break;
@@ -124,7 +133,10 @@ impl Model {
                             self.remove(o.seq);
                         } else {
                             self.orders[i].lots -= d;
-                            let part = MOrder { lots: d, ..o.clone() };
+                            let part = MOrder {
+                                lots: d,
+                                ..o.clone()
+                            };
                             self.unlock(&part);
                         }
                     }
@@ -175,12 +187,17 @@ impl Model {
         if p.expires_at != 0 && p.expires_at <= now {
             return Err(EngineError::AlreadyExpired);
         }
-        if p.quote_budget.is_some() && (p.order_type != OrderType::ImmediateOrCancel || p.side != Side::Bid) {
+        if p.quote_budget.is_some()
+            && (p.order_type != OrderType::ImmediateOrCancel || p.side != Side::Bid)
+        {
             return Err(EngineError::BudgetRequiresIoc);
         }
         let ml = p.match_limit.max(1);
         let takes = !matches!(p.order_type, OrderType::PostOnly | OrderType::PostOnlySlide);
-        let rests = matches!(p.order_type, OrderType::Limit | OrderType::PostOnly | OrderType::PostOnlySlide);
+        let rests = matches!(
+            p.order_type,
+            OrderType::Limit | OrderType::PostOnly | OrderType::PostOnlySlide
+        );
         let budget = match p.side {
             Side::Ask => {
                 if self.base[t] < p.base_lots * BLS {
@@ -197,7 +214,11 @@ impl Model {
                 }
                 None => {
                     let n = p.base_lots * p.price * QLS;
-                    let need = if takes { n + fee(n) + u64::from(ml).min(p.base_lots) } else { n };
+                    let need = if takes {
+                        n + fee(n) + u64::from(ml).min(p.base_lots)
+                    } else {
+                        n
+                    };
                     if self.quote[t] < need {
                         return Err(EngineError::InsufficientFunds);
                     }
@@ -230,7 +251,16 @@ impl Model {
         }
         if p.order_type == OrderType::FillOrKill || p.self_trade == SelfTradeBehavior::Abort {
             let mut sim = self.clone();
-            let r = sim.match_book(Some(t), p.side, price, p.base_lots, None, p.self_trade, ml, now);
+            let r = sim.match_book(
+                Some(t),
+                p.side,
+                price,
+                p.base_lots,
+                None,
+                p.self_trade,
+                ml,
+                now,
+            );
             match r {
                 Err(e) => return Err(e),
                 Ok((fl, ..)) if p.order_type == OrderType::FillOrKill && fl < p.base_lots => {
@@ -242,7 +272,16 @@ impl Model {
         let mut out = PlaceOutcome::default();
         let mut remaining = p.base_lots;
         if takes {
-            let (fl, fq, ff, touched, rem) = self.match_book(Some(t), p.side, price, p.base_lots, budget, p.self_trade, ml, now)?;
+            let (fl, fq, ff, touched, rem) = self.match_book(
+                Some(t),
+                p.side,
+                price,
+                p.base_lots,
+                budget,
+                p.self_trade,
+                ml,
+                now,
+            )?;
             match p.side {
                 Side::Bid => {
                     self.quote[t] -= fq + ff;
@@ -271,7 +310,15 @@ impl Model {
                 Side::Bid => self.quote[t] -= remaining * price * QLS,
             }
             self.seq += 1;
-            self.orders.push(MOrder { seq: self.seq, trader: t, side: p.side, price, lots: remaining, coid: p.client_order_id, exp: p.expires_at });
+            self.orders.push(MOrder {
+                seq: self.seq,
+                trader: t,
+                side: p.side,
+                price,
+                lots: remaining,
+                coid: p.client_order_id,
+                exp: p.expires_at,
+            });
             out.order_id = Some(self.seq);
             out.rested_price = price;
             out.rested_base_lots = remaining;
@@ -282,14 +329,52 @@ impl Model {
 
 #[derive(Clone, Debug)]
 enum Op {
-    Place { t: usize, side: bool, price: u64, lots: u64, ty: u8, stp: u8, exp: Option<u64>, budget: Option<u64>, ml: u32, coid: u64 },
-    Cancel { t: usize, nth: usize },
-    CancelCoid { t: usize, coid: u64 },
-    CancelAll { t: usize, side: Option<bool> },
-    Reduce { t: usize, nth: usize, lots: u64 },
-    Swap { side: bool, lots: u64, budget: u64, limit: u64, ml: u32 },
-    Withdraw { t: usize, base: u64, quote: u64 },
-    Deposit { t: usize, base: u64, quote: u64 },
+    Place {
+        t: usize,
+        side: bool,
+        price: u64,
+        lots: u64,
+        ty: u8,
+        stp: u8,
+        exp: Option<u64>,
+        budget: Option<u64>,
+        ml: u32,
+        coid: u64,
+    },
+    Cancel {
+        t: usize,
+        nth: usize,
+    },
+    CancelCoid {
+        t: usize,
+        coid: u64,
+    },
+    CancelAll {
+        t: usize,
+        side: Option<bool>,
+    },
+    Reduce {
+        t: usize,
+        nth: usize,
+        lots: u64,
+    },
+    Swap {
+        side: bool,
+        lots: u64,
+        budget: u64,
+        limit: u64,
+        ml: u32,
+    },
+    Withdraw {
+        t: usize,
+        base: u64,
+        quote: u64,
+    },
+    Deposit {
+        t: usize,
+        base: u64,
+        quote: u64,
+    },
     Tick(u64),
     Prune(u32),
     Grow(u32),
@@ -312,11 +397,29 @@ fn op() -> impl Strategy<Value = Op> {
     ]
 }
 
-fn snapshot(m: &Market<'_>, seats: &[u32], now: u64) -> (Vec<(u64, u64)>, Vec<(u64, u64, u64)>, Vec<(u64, u64, u64)>, u64) {
-    let bal = seats.iter().map(|&s| { let t = m.trader(s).unwrap(); (t.base_free, t.quote_free) }).collect();
+fn snapshot(
+    m: &Market<'_>,
+    seats: &[u32],
+    now: u64,
+) -> (
+    Vec<(u64, u64)>,
+    Vec<(u64, u64, u64)>,
+    Vec<(u64, u64, u64)>,
+    u64,
+) {
+    let bal = seats
+        .iter()
+        .map(|&s| {
+            let t = m.trader(s).unwrap();
+            (t.base_free, t.quote_free)
+        })
+        .collect();
     let mut sides = [vec![], vec![]];
     for (k, side) in [Side::Bid, Side::Ask].into_iter().enumerate() {
-        let mut i = match side { Side::Bid => m.best_bid(), Side::Ask => m.best_ask() };
+        let mut i = match side {
+            Side::Bid => m.best_bid(),
+            Side::Ask => m.best_ask(),
+        };
         while i != NIL {
             let o = m.order(i).unwrap();
             sides[k].push((o.seq, o.price(), o.base_lots));
@@ -328,9 +431,24 @@ fn snapshot(m: &Market<'_>, seats: &[u32], now: u64) -> (Vec<(u64, u64)>, Vec<(u
     (bal, b, a, m.header().fees_accrued)
 }
 
-fn model_snapshot(md: &Model) -> (Vec<(u64, u64)>, Vec<(u64, u64, u64)>, Vec<(u64, u64, u64)>, u64) {
+fn model_snapshot(
+    md: &Model,
+) -> (
+    Vec<(u64, u64)>,
+    Vec<(u64, u64, u64)>,
+    Vec<(u64, u64, u64)>,
+    u64,
+) {
     let bal = (0..TRADERS).map(|t| (md.base[t], md.quote[t])).collect();
-    let f = |s| md.book(s).into_iter().map(|i| { let o = &md.orders[i]; (o.seq, o.price, o.lots) }).collect();
+    let f = |s| {
+        md.book(s)
+            .into_iter()
+            .map(|i| {
+                let o = &md.orders[i];
+                (o.seq, o.price, o.lots)
+            })
+            .collect()
+    };
     (bal, f(Side::Bid), f(Side::Ask), md.fees)
 }
 

@@ -6,9 +6,9 @@ use pinocchio_token::TokenInterface;
 
 use crate::error::{engine, MatchbookError};
 use crate::events::LogSink;
-use crate::instruction::{CreateMarketArgs, Ix, OrderArgs, Reader, SwapArgs};
+use crate::instruction::{CreateMarketArgs, Header, Ix, OrderArgs, Reader, SwapArgs};
 use crate::utils::{
-    ensure_nodes, mint_decimals, now, require_key, require_market, require_signer, token_amount,
+    ensure_nodes, set_return_data, mint_decimals, now, require_key, require_market, require_signer, token_amount,
     transfer, vault_seeds,
 };
 
@@ -21,23 +21,20 @@ pub fn process_instruction(
     accounts: &mut [AccountView],
     data: &[u8],
 ) -> ProgramResult {
-    let (&tag, rest) = data.split_first().ok_or(MatchbookError::InvalidInstruction)?;
-    let ix = Ix::from_u8(tag).ok_or(MatchbookError::InvalidInstruction)?;
-    let mut r = Reader::new(rest);
-    match ix {
-        Ix::CreateMarket => create_market(accounts, &mut r),
+    let (h, mut r) = Header::parse(data)?;
+    let r = &mut r;
+    match h.ix {
+        Ix::CreateMarket => create_market(accounts, r),
         Ix::ClaimSeat => claim_seat(accounts),
-        Ix::Deposit => deposit(accounts, &mut r),
-        Ix::Withdraw => withdraw(accounts, &mut r),
-        Ix::PlaceOrder => place_order(accounts, &mut r),
-        Ix::CancelOrder | Ix::CancelAll | Ix::CancelByClientId | Ix::ReduceOrder => {
-            cancel(ix, accounts, &mut r)
-        }
-        Ix::BatchUpdate => batch_update(accounts, &mut r),
-        Ix::Swap => swap(accounts, &mut r),
+        Ix::Deposit => deposit(accounts, h, r),
+        Ix::Withdraw => withdraw(accounts, h, r),
+        Ix::PlaceOrder => place_order(accounts, h, r),
+        Ix::CancelOrder | Ix::CancelAll | Ix::CancelByClientId | Ix::ReduceOrder => cancel(accounts, h, r),
+        Ix::BatchUpdate => batch_update(accounts, h, r),
+        Ix::Swap => swap(accounts, h, r),
         Ix::CollectFees => collect_fees(accounts),
-        Ix::SetStatus => set_status(accounts, &mut r),
-        Ix::PruneExpired => prune_expired(accounts, &mut r),
+        Ix::SetStatus => set_status(accounts, h),
+        Ix::PruneExpired => prune_expired(accounts, h),
     }
 }
 
@@ -53,7 +50,10 @@ fn create_market(accounts: &mut [AccountView], r: &mut Reader<'_>) -> ProgramRes
     };
     require_signer(payer)?;
     require_signer(market)?;
-    let a = CreateMarketArgs::read(r)?;
+    let a: CreateMarketArgs = r.pod()?;
+    if a.reserved != 0 {
+        return Err(MatchbookError::InvalidInstructionData.into());
+    }
     if base_mint.address() == quote_mint.address() {
         return Err(MatchbookError::SameMints.into());
     }
@@ -149,13 +149,13 @@ fn resolve_vault(
     Ok(is_base)
 }
 
-fn deposit(accounts: &mut [AccountView], r: &mut Reader<'_>) -> ProgramResult {
+fn deposit(accounts: &mut [AccountView], h: Header, r: &mut Reader<'_>) -> ProgramResult {
     let [owner, market, user_token, vault, mint, tp, ..] = accounts else {
         return Err(ProgramError::NotEnoughAccountKeys);
     };
     require_signer(owner)?;
     require_market(market)?;
-    let hint = r.u32()?;
+    let hint = h.hint;
     let amount = r.u64()?;
     let is_base = {
         let mut data = market.try_borrow_mut()?;
@@ -173,13 +173,13 @@ fn deposit(accounts: &mut [AccountView], r: &mut Reader<'_>) -> ProgramResult {
     m.deposit(t, b, q).map_err(engine)
 }
 
-fn withdraw(accounts: &mut [AccountView], r: &mut Reader<'_>) -> ProgramResult {
+fn withdraw(accounts: &mut [AccountView], h: Header, r: &mut Reader<'_>) -> ProgramResult {
     let [owner, market, user_token, vault, mint, vault_authority, tp, ..] = accounts else {
         return Err(ProgramError::NotEnoughAccountKeys);
     };
     require_signer(owner)?;
     require_market(market)?;
-    let hint = r.u32()?;
+    let hint = h.hint;
     let amount = r.u64()?;
     let bump = {
         let mut data = market.try_borrow_mut()?;
@@ -195,14 +195,14 @@ fn withdraw(accounts: &mut [AccountView], r: &mut Reader<'_>) -> ProgramResult {
     transfer(vault, mint, user_token, vault_authority, tp, amount, decimals, Some(&Signer::from(&seeds)))
 }
 
-fn place_order(accounts: &mut [AccountView], r: &mut Reader<'_>) -> ProgramResult {
+fn place_order(accounts: &mut [AccountView], h: Header, r: &mut Reader<'_>) -> ProgramResult {
     let [owner, market, ..] = accounts else {
         return Err(ProgramError::NotEnoughAccountKeys);
     };
     require_signer(owner)?;
     require_market(market)?;
-    let hint = r.u32()?;
-    let p = OrderArgs::read(r)?.to_params()?;
+    let hint = h.hint;
+    let p = r.pod::<OrderArgs>()?.to_params()?;
     if p.order_type != matchbook_engine::OrderType::ImmediateOrCancel
         && p.order_type != matchbook_engine::OrderType::FillOrKill
     {
@@ -216,24 +216,24 @@ fn place_order(accounts: &mut [AccountView], r: &mut Reader<'_>) -> ProgramResul
     let mut s = LogSink::new();
     let out = m.place_order(t, &p, ts, &mut s).map_err(engine)?;
     s.take(&me, p.side, out.filled_base_lots, out.filled_quote_atoms, out.fee_atoms);
+    set_return_data(&out.order_id.unwrap_or(0).to_le_bytes());
     Ok(())
 }
 
-fn cancel(ix: Ix, accounts: &mut [AccountView], r: &mut Reader<'_>) -> ProgramResult {
+fn cancel(accounts: &mut [AccountView], h: Header, r: &mut Reader<'_>) -> ProgramResult {
     let [owner, market, ..] = accounts else {
         return Err(ProgramError::NotEnoughAccountKeys);
     };
     require_signer(owner)?;
     require_market(market)?;
-    let hint = r.u32()?;
     let mut data = market.try_borrow_mut()?;
     let mut m = Market::load_mut(&mut data).map_err(engine)?;
-    let t = m.resolve_trader(&owner_bytes(owner), Some(hint)).map_err(engine)?;
+    let t = m.resolve_trader(&owner_bytes(owner), Some(h.hint)).map_err(engine)?;
     let s = &mut LogSink::new();
-    match ix {
+    match h.ix {
         Ix::CancelOrder => m.cancel_order(t, r.u64()?, s),
         Ix::CancelAll => {
-            let side = match r.u8()? {
+            let side = match h.a {
                 0 => Some(Side::Bid),
                 1 => Some(Side::Ask),
                 _ => None,
@@ -249,16 +249,13 @@ fn cancel(ix: Ix, accounts: &mut [AccountView], r: &mut Reader<'_>) -> ProgramRe
     .map_err(engine)
 }
 
-fn batch_update(accounts: &mut [AccountView], r: &mut Reader<'_>) -> ProgramResult {
+fn batch_update(accounts: &mut [AccountView], h: Header, r: &mut Reader<'_>) -> ProgramResult {
     let [owner, market, ..] = accounts else {
         return Err(ProgramError::NotEnoughAccountKeys);
     };
     require_signer(owner)?;
     require_market(market)?;
-    let hint = r.u32()?;
-    let cancel_all = r.u8()?;
-    let n_cancels = r.u8()?;
-    let n_orders = r.u8()?;
+    let (hint, cancel_all, n_cancels, n_orders) = (h.hint, h.a, h.b, h.c);
     if n_cancels > MAX_BATCH || n_orders > MAX_BATCH {
         return Err(MatchbookError::TooManyItems.into());
     }
@@ -279,21 +276,31 @@ fn batch_update(accounts: &mut [AccountView], r: &mut Reader<'_>) -> ProgramResu
     }
     for _ in 0..n_cancels {
         let id = r.u64()?;
+        matchbook_engine::cu!();
         // A cancel racing a fill is not an error for market makers.
         match m.cancel_order(t, id, s) {
             Ok(()) | Err(matchbook_engine::EngineError::OrderNotFound) => {}
             Err(e) => return Err(engine(e)),
         }
     }
-    for _ in 0..n_orders {
-        let p = OrderArgs::read(r)?.to_params()?;
+    let mut ids = [0u64; MAX_BATCH as usize];
+    for slot in ids.iter_mut().take(usize::from(n_orders)) {
+        matchbook_engine::cu!();
+        let p = r.pod::<OrderArgs>()?.to_params()?;
         let out = m.place_order(t, &p, ts, s).map_err(engine)?;
+        matchbook_engine::cu!();
         s.take(&me, p.side, out.filled_base_lots, out.filled_quote_atoms, out.fee_atoms);
+        *slot = out.order_id.unwrap_or(0);
+    }
+    if let Some(placed) = ids.get(..usize::from(n_orders)) {
+        if !placed.is_empty() {
+            set_return_data(bytemuck::cast_slice(placed));
+        }
     }
     Ok(())
 }
 
-fn swap(accounts: &mut [AccountView], r: &mut Reader<'_>) -> ProgramResult {
+fn swap(accounts: &mut [AccountView], h: Header, r: &mut Reader<'_>) -> ProgramResult {
     let [user, market, user_base, user_quote, base_vault, quote_vault, base_mint, quote_mint, vault_authority, base_tp, quote_tp, ..] =
         accounts
     else {
@@ -301,8 +308,8 @@ fn swap(accounts: &mut [AccountView], r: &mut Reader<'_>) -> ProgramResult {
     };
     require_signer(user)?;
     require_market(market)?;
-    let a = SwapArgs::read(r)?;
-    let side = Side::from_u8(a.side).ok_or(MatchbookError::InvalidInstructionData)?;
+    let a: SwapArgs = r.pod()?;
+    let side = Side::from_u8(h.a).ok_or(MatchbookError::InvalidInstructionData)?;
     let ts = now()?;
     let mut sink = LogSink::new();
     let (out, bump) = {
@@ -377,25 +384,25 @@ fn collect_fees(accounts: &mut [AccountView]) -> ProgramResult {
     transfer(quote_vault, quote_mint, destination, vault_authority, tp, amount, decimals, Some(&Signer::from(&seeds)))
 }
 
-fn set_status(accounts: &mut [AccountView], r: &mut Reader<'_>) -> ProgramResult {
+fn set_status(accounts: &mut [AccountView], h: Header) -> ProgramResult {
     let [authority, market, ..] = accounts else {
         return Err(ProgramError::NotEnoughAccountKeys);
     };
     require_signer(authority)?;
     require_market(market)?;
-    let status = MarketStatus::from_u32(u32::from(r.u8()?)).ok_or(MatchbookError::InvalidInstructionData)?;
+    let status = MarketStatus::from_u32(u32::from(h.a)).ok_or(MatchbookError::InvalidInstructionData)?;
     let mut data = market.try_borrow_mut()?;
     let mut m = Market::load_mut(&mut data).map_err(engine)?;
     require_key(authority, &m.header().authority).map_err(|_| MatchbookError::NotAuthority)?;
     m.set_status(status).map_err(engine)
 }
 
-fn prune_expired(accounts: &mut [AccountView], r: &mut Reader<'_>) -> ProgramResult {
+fn prune_expired(accounts: &mut [AccountView], h: Header) -> ProgramResult {
     let [market, ..] = accounts else {
         return Err(ProgramError::NotEnoughAccountKeys);
     };
     require_market(market)?;
-    let limit = r.u32()?;
+    let limit = h.hint;
     let ts = now()?;
     let mut data = market.try_borrow_mut()?;
     let mut m = Market::load_mut(&mut data).map_err(engine)?;

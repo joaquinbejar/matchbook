@@ -86,122 +86,121 @@ pub(crate) fn find(nodes: &[Node], root: u32, key: u128) -> Result<u32> {
     Ok(NIL)
 }
 
+#[inline(always)]
+fn child(n: &Node, right: bool) -> u32 {
+    if right {
+        n.right
+    } else {
+        n.left
+    }
+}
+
+#[inline(always)]
+fn set_child(n: &mut Node, right: bool, v: u32) {
+    if right {
+        n.right = v;
+    } else {
+        n.left = v;
+    }
+}
+
+#[inline(always)]
+fn red(n: &Node) -> bool {
+    n.flags & FLAG_RED != 0
+}
+
 impl Tree<'_> {
-    #[inline]
+    #[inline(always)]
     fn n(&self, i: u32) -> Result<&Node> {
         node(self.nodes, i)
     }
 
-    #[inline]
+    #[inline(always)]
     fn m(&mut self, i: u32) -> Result<&mut Node> {
         self.nodes.get_mut(i as usize).ok_or(EngineError::Corrupted)
     }
 
-    #[inline]
-    fn left(&self, i: u32) -> Result<u32> {
-        Ok(self.n(i)?.left)
-    }
-
-    #[inline]
-    fn right(&self, i: u32) -> Result<u32> {
-        Ok(self.n(i)?.right)
-    }
-
-    #[inline]
-    fn parent(&self, i: u32) -> Result<u32> {
-        Ok(self.n(i)?.parent)
-    }
-
-    #[inline]
+    #[inline(always)]
     fn is_red(&self, i: u32) -> Result<bool> {
         if i == NIL {
             return Ok(false);
         }
-        Ok(self.n(i)?.flags & FLAG_RED != 0)
+        Ok(red(self.n(i)?))
     }
 
-    #[inline]
-    fn set_red(&mut self, i: u32, red: bool) -> Result<()> {
-        if i == NIL {
-            return Ok(());
-        }
-        let n = self.m(i)?;
-        if red {
-            n.flags |= FLAG_RED;
-        } else {
-            n.flags &= !FLAG_RED;
-        }
-        Ok(())
-    }
-
-    fn set_left(&mut self, i: u32, v: u32) -> Result<()> {
-        self.m(i)?.left = v;
-        Ok(())
-    }
-
-    fn set_right(&mut self, i: u32, v: u32) -> Result<()> {
-        self.m(i)?.right = v;
-        Ok(())
-    }
-
-    fn set_parent(&mut self, i: u32, v: u32) -> Result<()> {
+    /// Colors `i` (a no-op on [`NIL`], which is black).
+    #[inline(always)]
+    fn paint(&mut self, i: u32, is_red: bool) -> Result<()> {
         if i != NIL {
-            self.m(i)?.parent = v;
+            let n = self.m(i)?;
+            n.flags = if is_red { n.flags | FLAG_RED } else { n.flags & !FLAG_RED };
         }
         Ok(())
     }
 
-    /// Replaces `old` with `new` in `old`'s parent (or the root).
-    fn replace_child(&mut self, p: u32, old: u32, new: u32) -> Result<()> {
+    /// Points `p`'s link to `old` (or the root, when `p` is [`NIL`]) at `new`.
+    #[inline(always)]
+    fn relink(&mut self, p: u32, old: u32, new: u32) -> Result<()> {
         if p == NIL {
             *self.root = new;
-        } else if self.left(p)? == old {
-            self.set_left(p, new)?;
         } else {
-            self.set_right(p, new)?;
+            let pn = self.m(p)?;
+            if pn.left == old {
+                pn.left = new;
+            } else {
+                pn.right = new;
+            }
         }
         Ok(())
     }
 
-    fn rotate_left(&mut self, x: u32) -> Result<()> {
-        let y = self.right(x)?;
-        let yl = self.left(y)?;
-        self.set_right(x, yl)?;
-        self.set_parent(yl, x)?;
-        let xp = self.parent(x)?;
-        self.set_parent(y, xp)?;
-        self.replace_child(xp, x, y)?;
-        self.set_left(y, x)?;
-        self.set_parent(x, y)
-    }
-
-    fn rotate_right(&mut self, x: u32) -> Result<()> {
-        let y = self.left(x)?;
-        let yr = self.right(y)?;
-        self.set_left(x, yr)?;
-        self.set_parent(yr, x)?;
-        let xp = self.parent(x)?;
-        self.set_parent(y, xp)?;
-        self.replace_child(xp, x, y)?;
-        self.set_right(y, x)?;
-        self.set_parent(x, y)
+    /// Rotates around `x`. `left == true` lifts `x`'s right child, `false`
+    /// lifts its left child.
+    fn rotate(&mut self, x: u32, left: bool) -> Result<()> {
+        let (y, xp) = {
+            let n = self.n(x)?;
+            (child(n, left), n.parent)
+        };
+        let b = child(self.n(y)?, !left);
+        {
+            let n = self.m(x)?;
+            set_child(n, left, b);
+            n.parent = y;
+        }
+        if b != NIL {
+            self.m(b)?.parent = x;
+        }
+        {
+            let n = self.m(y)?;
+            set_child(n, !left, x);
+            n.parent = xp;
+        }
+        self.relink(xp, x, y)
     }
 
     /// Inserts node `z` (key already set). Fails on duplicate keys without
     /// modifying the tree.
     pub fn insert(&mut self, z: u32) -> Result<()> {
-        let key = self.n(z)?.key();
+        let (hi, lo) = {
+            let n = self.n(z)?;
+            (n.key_hi, n.key_lo)
+        };
         let mut y = NIL;
         let mut x = *self.root;
         let mut go_left = false;
-        while x != NIL {
+        while let Some(n) = self.nodes.get(x as usize) {
             y = x;
-            let k = self.n(x)?.key();
-            if key == k {
+            go_left = if hi != n.key_hi {
+                hi < n.key_hi
+            } else if lo != n.key_lo {
+                lo < n.key_lo
+            } else {
                 return Err(EngineError::Corrupted);
-            }
-            go_left = key < k;
-            x = if go_left { self.left(x)? } else { self.right(x)? };
+            };
+            x = if go_left { n.left } else { n.right };
+        }
+        if x != NIL {
+            return Err(EngineError::Corrupted);
         }
         {
             let zn = self.m(z)?;
@@ -212,178 +211,155 @@ impl Tree<'_> {
         }
         if y == NIL {
             *self.root = z;
-        } else if go_left {
-            self.set_left(y, z)?;
         } else {
-            self.set_right(y, z)?;
+            set_child(self.m(y)?, !go_left, z);
         }
         self.insert_fixup(z)
     }
 
     fn insert_fixup(&mut self, mut z: u32) -> Result<()> {
-        while z != *self.root && self.is_red(self.parent(z)?)? {
-            let p = self.parent(z)?;
-            let g = self.parent(p)?;
-            if p == self.left(g)? {
-                let u = self.right(g)?;
-                if self.is_red(u)? {
-                    self.set_red(p, false)?;
-                    self.set_red(u, false)?;
-                    self.set_red(g, true)?;
-                    z = g;
-                } else {
-                    if z == self.right(p)? {
-                        z = p;
-                        self.rotate_left(z)?;
-                    }
-                    let p = self.parent(z)?;
-                    let g = self.parent(p)?;
-                    self.set_red(p, false)?;
-                    self.set_red(g, true)?;
-                    self.rotate_right(g)?;
-                }
-            } else {
-                let u = self.left(g)?;
-                if self.is_red(u)? {
-                    self.set_red(p, false)?;
-                    self.set_red(u, false)?;
-                    self.set_red(g, true)?;
-                    z = g;
-                } else {
-                    if z == self.left(p)? {
-                        z = p;
-                        self.rotate_right(z)?;
-                    }
-                    let p = self.parent(z)?;
-                    let g = self.parent(p)?;
-                    self.set_red(p, false)?;
-                    self.set_red(g, true)?;
-                    self.rotate_left(g)?;
-                }
+        loop {
+            let p = self.n(z)?.parent;
+            if p == NIL {
+                break;
             }
+            let (p_red, g) = {
+                let pn = self.n(p)?;
+                (red(pn), pn.parent)
+            };
+            if !p_red {
+                break;
+            }
+            // A red parent is never the root, so `g` exists.
+            let (p_is_right, u) = {
+                let gn = self.n(g)?;
+                let r = gn.right == p;
+                (r, child(gn, !r))
+            };
+            if self.is_red(u)? {
+                self.paint(p, false)?;
+                self.paint(u, false)?;
+                self.paint(g, true)?;
+                z = g;
+                continue;
+            }
+            let mut p = p;
+            if child(self.n(p)?, !p_is_right) == z {
+                // Inner grandchild: rotate it to the outside first.
+                self.rotate(p, !p_is_right)?;
+                p = z;
+            }
+            self.paint(p, false)?;
+            self.paint(g, true)?;
+            self.rotate(g, p_is_right)?;
+            break;
         }
         let r = *self.root;
-        self.set_red(r, false)
-    }
-
-    fn transplant(&mut self, u: u32, v: u32) -> Result<()> {
-        let up = self.parent(u)?;
-        self.replace_child(up, u, v)?;
-        self.set_parent(v, up)
+        self.paint(r, false)
     }
 
     /// Unlinks node `z` from the tree. The node itself is left for the caller
     /// to free.
     pub fn remove(&mut self, z: u32) -> Result<()> {
-        let mut y_red = self.is_red(z)?;
-        let x;
-        let xp;
-        let zl = self.left(z)?;
-        let zr = self.right(z)?;
-        if zl == NIL {
-            x = zr;
-            xp = self.parent(z)?;
-            self.transplant(z, zr)?;
-        } else if zr == NIL {
-            x = zl;
-            xp = self.parent(z)?;
-            self.transplant(z, zl)?;
+        let (zl, zr, zp, z_red) = {
+            let n = self.n(z)?;
+            (n.left, n.right, n.parent, red(n))
+        };
+        let (x, xp, removed_red);
+        if zl == NIL || zr == NIL {
+            let c = if zl == NIL { zr } else { zl };
+            self.relink(zp, z, c)?;
+            if c != NIL {
+                self.m(c)?.parent = zp;
+            }
+            x = c;
+            xp = zp;
+            removed_red = z_red;
         } else {
+            // Replace `z` with its successor `y`, the minimum of the right subtree.
             let y = min(self.nodes, zr)?;
-            y_red = self.is_red(y)?;
-            x = self.right(y)?;
-            if self.parent(y)? == z {
+            let (yr, yp, y_red) = {
+                let n = self.n(y)?;
+                (n.right, n.parent, red(n))
+            };
+            x = yr;
+            removed_red = y_red;
+            if yp == z {
                 xp = y;
             } else {
-                xp = self.parent(y)?;
-                self.transplant(y, x)?;
-                self.set_right(y, zr)?;
-                self.set_parent(zr, y)?;
+                xp = yp;
+                self.m(yp)?.left = yr;
+                if yr != NIL {
+                    self.m(yr)?.parent = yp;
+                }
+                self.m(y)?.right = zr;
+                self.m(zr)?.parent = y;
             }
-            self.transplant(z, y)?;
-            self.set_left(y, zl)?;
-            self.set_parent(zl, y)?;
-            let z_red = self.is_red(z)?;
-            self.set_red(y, z_red)?;
+            self.relink(zp, z, y)?;
+            {
+                let n = self.m(y)?;
+                n.parent = zp;
+                n.left = zl;
+                n.flags = if z_red { n.flags | FLAG_RED } else { n.flags & !FLAG_RED };
+            }
+            self.m(zl)?.parent = y;
         }
-        if !y_red {
+        if !removed_red {
             self.remove_fixup(x, xp)?;
         }
         Ok(())
     }
 
     fn remove_fixup(&mut self, mut x: u32, mut xp: u32) -> Result<()> {
-        while x != *self.root && !self.is_red(x)? {
-            if xp == NIL {
-                break;
+        while xp != NIL && !self.is_red(x)? {
+            // `w` is x's sibling; it exists because x's side is one black short.
+            let x_is_left = self.n(xp)?.left == x;
+            let mut w = child(self.n(xp)?, x_is_left);
+            if self.is_red(w)? {
+                self.paint(w, false)?;
+                self.paint(xp, true)?;
+                self.rotate(xp, x_is_left)?;
+                w = child(self.n(xp)?, x_is_left);
             }
-            if x == self.left(xp)? {
-                let mut w = self.right(xp)?;
-                if self.is_red(w)? {
-                    self.set_red(w, false)?;
-                    self.set_red(xp, true)?;
-                    self.rotate_left(xp)?;
-                    w = self.right(xp)?;
-                }
-                if !self.is_red(self.left(w)?)? && !self.is_red(self.right(w)?)? {
-                    self.set_red(w, true)?;
-                    x = xp;
-                    xp = self.parent(x)?;
-                } else {
-                    if !self.is_red(self.right(w)?)? {
-                        let wl = self.left(w)?;
-                        self.set_red(wl, false)?;
-                        self.set_red(w, true)?;
-                        self.rotate_right(w)?;
-                        w = self.right(xp)?;
-                    }
-                    let xp_red = self.is_red(xp)?;
-                    self.set_red(w, xp_red)?;
-                    self.set_red(xp, false)?;
-                    let wr = self.right(w)?;
-                    self.set_red(wr, false)?;
-                    self.rotate_left(xp)?;
-                    x = *self.root;
-                    xp = NIL;
-                }
-            } else {
-                let mut w = self.left(xp)?;
-                if self.is_red(w)? {
-                    self.set_red(w, false)?;
-                    self.set_red(xp, true)?;
-                    self.rotate_right(xp)?;
-                    w = self.left(xp)?;
-                }
-                if !self.is_red(self.left(w)?)? && !self.is_red(self.right(w)?)? {
-                    self.set_red(w, true)?;
-                    x = xp;
-                    xp = self.parent(x)?;
-                } else {
-                    if !self.is_red(self.left(w)?)? {
-                        let wr = self.right(w)?;
-                        self.set_red(wr, false)?;
-                        self.set_red(w, true)?;
-                        self.rotate_left(w)?;
-                        w = self.left(xp)?;
-                    }
-                    let xp_red = self.is_red(xp)?;
-                    self.set_red(w, xp_red)?;
-                    self.set_red(xp, false)?;
-                    let wl = self.left(w)?;
-                    self.set_red(wl, false)?;
-                    self.rotate_right(xp)?;
-                    x = *self.root;
-                    xp = NIL;
-                }
+            let (near, far) = {
+                let wn = self.n(w)?;
+                (child(wn, !x_is_left), child(wn, x_is_left))
+            };
+            if !self.is_red(near)? && !self.is_red(far)? {
+                self.paint(w, true)?;
+                x = xp;
+                xp = self.n(x)?.parent;
+                continue;
             }
+            if !self.is_red(far)? {
+                self.paint(near, false)?;
+                self.paint(w, true)?;
+                self.rotate(w, !x_is_left)?;
+                w = child(self.n(xp)?, x_is_left);
+            }
+            let xp_red = red(self.n(xp)?);
+            self.paint(w, xp_red)?;
+            self.paint(xp, false)?;
+            let far = child(self.n(w)?, x_is_left);
+            self.paint(far, false)?;
+            self.rotate(xp, x_is_left)?;
+            x = *self.root;
+            break;
         }
-        self.set_red(x, false)
+        self.paint(x, false)
     }
 }
 
 /// Checks red-black and ordering properties. Returns the node count.
 pub(crate) fn validate(nodes: &[Node], root: u32) -> Result<u32> {
-    fn walk(nodes: &[Node], i: u32, parent: u32, lo: Option<u128>, hi: Option<u128>, count: &mut u32) -> Result<u32> {
+    fn walk(
+        nodes: &[Node],
+        i: u32,
+        parent: u32,
+        lo: Option<u128>,
+        hi: Option<u128>,
+        count: &mut u32,
+    ) -> Result<u32> {
         if i == NIL {
             return Ok(1);
         }
@@ -414,4 +390,59 @@ pub(crate) fn validate(nodes: &[Node], root: u32) -> Result<u32> {
     let mut count = 0;
     walk(nodes, root, NIL, None, None, &mut count)?;
     Ok(count)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::vec::Vec;
+
+    fn pool(n: usize) -> Vec<Node> {
+        (0..n)
+            .map(|i| {
+                let mut x: Node = bytemuck::Zeroable::zeroed();
+                x.set_key((i as u128) * 7919 % 10_007);
+                x
+            })
+            .collect()
+    }
+
+    /// Random inserts and removes, validating the whole tree after each step.
+    #[test]
+    fn random_inserts_and_removes_stay_valid() {
+        const N: usize = 3_000;
+        let mut nodes = pool(N);
+        let mut root = NIL;
+        let mut live: Vec<u32> = Vec::new();
+        let mut free: Vec<u32> = (0..N as u32).rev().collect();
+        let mut x: u64 = 0x2545_F491_4F6C_DD1D;
+        for step in 0..40_000 {
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            let insert = live.is_empty() || (!free.is_empty() && x % 5 < 3);
+            {
+                let mut t = Tree { nodes: &mut nodes, root: &mut root };
+                if insert {
+                    let i = free.pop().unwrap();
+                    t.nodes[i as usize].flags = 0;
+                    t.insert(i).unwrap();
+                    live.push(i);
+                } else {
+                    // Mostly remove the minimum, as matching does.
+                    let k = if x % 3 == 0 { (x >> 8) as usize % live.len() } else {
+                        let m = min(t.nodes, *t.root).unwrap();
+                        live.iter().position(|&v| v == m).unwrap()
+                    };
+                    let i = live.swap_remove(k);
+                    t.remove(i).unwrap();
+                    free.push(i);
+                }
+            }
+            if step % 7 == 0 || live.len() < 50 {
+                assert_eq!(validate(&nodes, root).unwrap() as usize, live.len(), "step {step}");
+            }
+        }
+        assert_eq!(validate(&nodes, root).unwrap() as usize, live.len());
+    }
 }

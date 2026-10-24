@@ -45,7 +45,6 @@
 #[cfg(test)]
 extern crate std;
 
-mod rbtree;
 mod error;
 mod events;
 mod header;
@@ -53,6 +52,7 @@ mod market;
 mod matching;
 pub mod math;
 mod node;
+mod rbtree;
 mod types;
 
 pub use error::EngineError;
@@ -70,3 +70,30 @@ pub use types::{
 
 /// Result type used across the engine.
 pub type Result<T> = core::result::Result<T, EngineError>;
+
+/// Logs the remaining compute units when built with the `cu-trace` feature
+/// for SBF; compiles to nothing otherwise. Used to profile the engine.
+#[doc(hidden)]
+#[macro_export]
+macro_rules! cu {
+    () => {
+        #[cfg(all(feature = "cu-trace", target_os = "solana"))]
+        $crate::trace::log_compute_units();
+    };
+}
+
+#[doc(hidden)]
+#[cfg(all(feature = "cu-trace", target_os = "solana"))]
+pub mod trace {
+    extern "C" {
+        fn sol_log_compute_units_();
+    }
+
+    /// Logs the remaining compute units.
+    #[inline(always)]
+    #[allow(unsafe_code)]
+    pub fn log_compute_units() {
+        // SAFETY: the syscall takes no arguments.
+        unsafe { sol_log_compute_units_() }
+    }
+}

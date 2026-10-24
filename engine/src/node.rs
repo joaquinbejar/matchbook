@@ -28,7 +28,10 @@ pub const fn order_id(seq: u64, index: u32) -> u64 {
 /// Splits a public order id into `(sequence number, node index)`.
 #[inline]
 pub const fn split_order_id(id: u64) -> (u64, u32) {
-    (id >> ORDER_INDEX_BITS, (id & ((1 << ORDER_INDEX_BITS) - 1)) as u32)
+    (
+        id >> ORDER_INDEX_BITS,
+        (id & ((1 << ORDER_INDEX_BITS) - 1)) as u32,
+    )
 }
 
 pub(crate) const FLAG_RED: u32 = 1;

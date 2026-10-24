@@ -6,6 +6,11 @@
 //! split an entry by reading the one-byte tag in front of each event; every
 //! event has a fixed size per tag. All integers are little-endian.
 //!
+//! Orders placed and cancelled by their owner are not logged: the order id
+//! of a placement is the instruction's return data, and the owner already
+//! knows what it cancelled. Orders that leave the book because of someone
+//! else's transaction (expiry, self-trade prevention) are logged.
+//!
 //! Fills carry only what cannot be derived: an instruction that takes
 //! liquidity ends with one [`tag::TAKE`] summary naming the taker and its
 //! totals, and each fill's quote amount, taker fee and maker rebate follow
@@ -19,7 +24,7 @@ pub mod tag {
     pub const FILL: u8 = 1;
     /// An order left the book without trading. See [`super::OUT_LEN`].
     pub const OUT: u8 = 2;
-    /// An order rested on the book. See [`super::PLACED_LEN`].
+    /// Reserved: placements are reported through return data.
     pub const PLACED: u8 = 3;
     /// Totals of one taking order or swap. See [`super::TAKE_LEN`].
     pub const TAKE: u8 = 4;
@@ -177,17 +182,18 @@ impl Drop for LogSink {
 }
 
 impl EventSink for LogSink {
+    const PLACED: bool = false;
+    fn wants_out(&self, reason: OutReason) -> bool {
+        // A filled order is described by its fill (`maker_remaining == 0`)
+        // and a cancelled one by the owner's own instruction.
+        matches!(reason, OutReason::Expired | OutReason::SelfTrade)
+    }
     fn on_fill(&mut self, e: &FillEvent) {
         self.push(&encode_fill(e));
     }
     fn on_out(&mut self, e: &OrderOutEvent) {
-        // A fully filled order is already described by its fill event
-        // (`maker_remaining == 0`), so only cancels and expiries are logged.
-        if e.reason != OutReason::Filled {
+        if self.wants_out(e.reason) {
             self.push(&encode_out(e));
         }
-    }
-    fn on_placed(&mut self, e: &PlacedEvent) {
-        self.push(&encode_placed(e));
     }
 }
