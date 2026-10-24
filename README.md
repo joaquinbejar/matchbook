@@ -72,6 +72,8 @@ numbers include its fees. Full table and method: [docs/benchmarks.md](docs/bench
 | [`program/`](program) | The Solana program, built with Pinocchio. |
 | [`sdk/`](sdk) | Rust client: instructions, market snapshots, exact quotes and a Jupiter adapter. |
 | [`ts-sdk/`](ts-sdk) | TypeScript client on `@solana/kit`. |
+| [`client/`](client) | Rust CLI (`matchbook`) and market-making bot (`matchbook-mm`). |
+| [`ts-client/`](ts-client) | The same CLI and bot in TypeScript. |
 | [`playground/`](playground) | The engine in WebAssembly with a browser UI. |
 | [`docs/`](docs) | Architecture, instruction reference, SDK guide and benchmarks. |
 
@@ -115,7 +117,17 @@ let snap = MarketSnapshot::new(market, &account_data)?;
 let out = snap.quote_exact_in(Side::Bid, 30_000_000, now)?;
 ```
 
-More in [docs/getting-started.md](docs/getting-started.md) and [docs/sdk-guide.md](docs/sdk-guide.md).
+From the command line, with the Rust or TypeScript client:
+
+```bash
+matchbook place $MARKET buy 1 149.9 --type post-only --reverse-spread-bps 20
+matchbook bracket $MARKET sell 1 --stop-loss 139 --take-profit 170
+matchbook session create $MARKET --out bot.json --fund 0.1
+matchbook-mm --market $MARKET --session-keypair bot.json --owner $ME --price book --size 1 --max-loss 100
+```
+
+More in [docs/getting-started.md](docs/getting-started.md), [docs/sdk-guide.md](docs/sdk-guide.md)
+and [docs/clients.md](docs/clients.md).
 
 ## Documentation
 
@@ -124,6 +136,7 @@ More in [docs/getting-started.md](docs/getting-started.md) and [docs/sdk-guide.m
   and how the compute budget is kept low.
 - [Instruction reference](docs/instructions.md): every instruction, its accounts, data and errors.
 - [SDK guide](docs/sdk-guide.md): TypeScript, Rust and Jupiter integration.
+- [Clients and bots](docs/clients.md): the `matchbook` CLI and the `matchbook-mm` market maker.
 - [Benchmarks](docs/benchmarks.md): the full comparison and how to reproduce it.
 
 ## Status

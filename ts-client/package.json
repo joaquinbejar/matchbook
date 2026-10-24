@@ -1,0 +1,48 @@
+{
+  "name": "@matchbook/client",
+  "version": "0.1.0",
+  "description": "Command-line client and market-making bot for the MatchBook order book on Solana",
+  "type": "module",
+  "bin": {
+    "matchbook": "dist/cli.js",
+    "matchbook-mm": "dist/mm-bot.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "cli": "tsx src/cli.ts",
+    "mm": "tsx src/mm-bot.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.test.json",
+    "lint": "eslint src tests"
+  },
+  "author": "Joaquin Bejar",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/joaquinbejar/matchbook.git",
+    "directory": "ts-client"
+  },
+  "dependencies": {
+    "@matchbook/sdk": "file:../ts-sdk",
+    "@solana-program/compute-budget": "^0.20.0",
+    "@solana-program/system": "^0.14.1",
+    "@solana-program/token": "^0.16.1",
+    "@solana/kit": "^8.5.0",
+    "commander": "^15.0.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^26.5.1",
+    "eslint": "^10.10.0",
+    "tsx": "^4.23.15",
+    "typescript": "^6.0.2",
+    "typescript-eslint": "^8.70.0",
+    "vitest": "^5.0.5"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

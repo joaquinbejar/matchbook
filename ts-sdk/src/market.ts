@@ -324,6 +324,31 @@ export class MarketView {
       .filter((s) => owner === undefined || s.owner === owner);
   }
 
+  /**
+   * Base and quote atoms the seat of `owner` has locked in resting orders
+   * and stops, as the program counts them.
+   */
+  locked(owner: Address): { base: bigint; quote: bigint } {
+    const bls = this.header.baseLotSize;
+    const qls = this.header.quoteLotSize;
+    let base = 0n;
+    let quote = 0n;
+    for (const o of this.ordersOf(owner)) {
+      if (o.side === Side.Ask) base += o.baseLots * bls;
+      else quote += o.baseLots * o.price * qls;
+    }
+    for (const s of this.stops(owner)) {
+      if (s.side === Side.Ask) {
+        base += s.baseLots * bls;
+      } else {
+        const notional = s.baseLots * s.price * qls;
+        const limit = BigInt(Math.max(s.matchLimit, 1));
+        quote += notional + this.takerFee(notional) + (limit < s.baseLots ? limit : s.baseLots);
+      }
+    }
+    return { base, quote };
+  }
+
   /** Aggregated levels on `side`, best first, at most `depth` of them. */
   levels(side: Side, depth = Infinity, now?: bigint): Level[] {
     const out: Level[] = [];

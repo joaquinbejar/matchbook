@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `matchbook` CLI in Rust (`client/`) and TypeScript (`ts-client/`): markets, deposits and
+  withdrawals, every order type including reverse orders, stops and OCO brackets, seatless
+  swaps with exact quotes, book and balances, and session keys.
+- `matchbook-mm` market-making bot in both languages: inventory-skewed ladders requoted in
+  one batch, session-key signing, position, notional, loss, stale-price and jump limits.
+- Rust SDK: event decoding, a seat's orders, stops and locked funds, delegates, error names.
+- TypeScript SDK: `MarketView.locked`.
+- `scripts/e2e-clients.sh`: both clients against a local validator.
+
 ## [1.0.0-beta.1] - 2026-10-24
 
 A redesign: a crankless order book in one growable account, with a new program, SDKs and

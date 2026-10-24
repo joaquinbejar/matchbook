@@ -13,6 +13,7 @@ program:
 test: program
 	cargo test --workspace --all-features
 	cd ts-sdk && npm test
+	cd ts-client && npm test
 
 .PHONY: model
 model:
@@ -26,6 +27,7 @@ bench: program
 lint:
 	cargo clippy --workspace --all-targets --all-features -- -D warnings
 	cd ts-sdk && npm run lint && npm run typecheck
+	cd ts-client && npm run lint && npm run typecheck
 
 .PHONY: fmt
 fmt:
@@ -42,3 +44,7 @@ playground:
 .PHONY: deploy-devnet
 deploy-devnet:
 	./scripts/deploy.sh devnet
+
+.PHONY: e2e-clients
+e2e-clients: program
+	./scripts/e2e-clients.sh

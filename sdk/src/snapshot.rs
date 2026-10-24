@@ -3,8 +3,9 @@
 use core::fmt;
 
 use matchbook_program::engine::{
-    BookLevel, EngineError, Market, MarketHeader, NoopSink, RestingOrder, Side, SwapOutcome,
-    SwapParams, TraderLeaf, HEADER_SIZE,
+    order_id, BookLevel, DelegateLeaf, EngineError, Market, MarketHeader, NodeTag, NoopSink,
+    OrderType, RestingOrder, SelfTradeBehavior, Side, StopLeaf, SwapOutcome, SwapParams,
+    TraderLeaf, TriggerDirection, HEADER_SIZE, NIL, NODE_SIZE,
 };
 use solana_pubkey::Pubkey;
 
@@ -44,6 +45,46 @@ impl From<EngineError> for SnapshotError {
 }
 
 type Result<T> = core::result::Result<T, SnapshotError>;
+
+/// A stop waiting for its trigger, as [`MarketSnapshot::seat_stops`] lists it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SeatStop {
+    /// Stop id, the one cancels and `oco_with` take.
+    pub stop_id: u64,
+    /// When it triggers.
+    pub direction: TriggerDirection,
+    /// Trigger price (quote lots per base lot).
+    pub trigger_price: u64,
+    /// Side of the order it places.
+    pub side: Side,
+    /// Limit price of that order.
+    pub price: u64,
+    /// Size of that order in base lots.
+    pub base_lots: u64,
+    /// Type of that order.
+    pub order_type: OrderType,
+    /// Self-trade behavior of that order.
+    pub self_trade: SelfTradeBehavior,
+    /// Client order id.
+    pub client_order_id: u64,
+    /// Unix expiry, or 0.
+    pub expires_at: u64,
+    /// Id of the one-cancels-other partner.
+    pub oco_with: Option<u64>,
+}
+
+/// A key allowed to act for a seat.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SeatDelegate {
+    /// The delegate's public key.
+    pub delegate: Pubkey,
+    /// Seat index it acts for.
+    pub seat: u32,
+    /// Unix time after which it can no longer act, or 0.
+    pub expires_at: u64,
+    /// [`crate::engine::permission`] bits.
+    pub permissions: u64,
+}
 
 /// A copy of a market account.
 ///
@@ -177,6 +218,80 @@ impl MarketSnapshot {
             };
             Ok(Some((i, *m.trader(i)?)))
         })
+    }
+
+    /// The resting orders of seat `seat`, newest first.
+    pub fn seat_orders(&self, seat: u32) -> Result<Vec<RestingOrder>> {
+        self.with_copy(|m| {
+            let mut out = Vec::new();
+            m.for_each_trader_order(seat, |_, o| out.push(o))?;
+            Ok(out)
+        })
+    }
+
+    /// The stops of seat `seat`, newest first.
+    pub fn seat_stops(&self, seat: u32) -> Result<Vec<SeatStop>> {
+        self.with_copy(|m| {
+            let mut raw: Vec<(u32, StopLeaf)> = Vec::new();
+            m.for_each_trader_stop(seat, |i, s| raw.push((i, *s)))?;
+            let mut out = Vec::with_capacity(raw.len());
+            for (i, s) in &raw {
+                let partner = s.partner();
+                let oco_with = if partner == NIL {
+                    None
+                } else {
+                    Some(order_id(m.stop(partner)?.seq(), partner))
+                };
+                out.push(SeatStop {
+                    stop_id: order_id(s.seq(), *i),
+                    direction: if s.is_above() {
+                        TriggerDirection::Above
+                    } else {
+                        TriggerDirection::Below
+                    },
+                    trigger_price: s.trigger_price(),
+                    side: if s.is_ask() { Side::Ask } else { Side::Bid },
+                    price: s.price,
+                    base_lots: s.base_lots,
+                    order_type: OrderType::from_u8(s.order_type).unwrap_or_default(),
+                    self_trade: SelfTradeBehavior::from_u8(s.self_trade).unwrap_or_default(),
+                    client_order_id: s.client_order_id,
+                    expires_at: s.expires_at,
+                    oco_with,
+                });
+            }
+            Ok(out)
+        })
+    }
+
+    /// Base and quote atoms seat `seat` has locked in orders and stops.
+    pub fn locked(&self, seat: u32) -> Result<(u64, u64)> {
+        self.with_copy(|m| Ok(m.locked(seat)?))
+    }
+
+    /// Every delegate of the market.
+    #[must_use]
+    pub fn delegates(&self) -> Vec<SeatDelegate> {
+        let bytes: &[u8] = bytemuck::cast_slice(&self.words);
+        let bytes = bytes.get(..self.len).unwrap_or_default();
+        let used = self.header().next_unused as usize;
+        bytes
+            .get(HEADER_SIZE..)
+            .unwrap_or_default()
+            .as_chunks::<NODE_SIZE>()
+            .0
+            .iter()
+            .take(used)
+            .filter_map(|n| {
+                let d: DelegateLeaf = bytemuck::pod_read_unaligned(n);
+                (d.tag == NodeTag::Delegate as u32).then(|| SeatDelegate {
+                    delegate: Pubkey::new_from_array(d.delegate),
+                    seat: d.trader,
+                    expires_at: d.expires_at,
+                    permissions: d.permissions,
+                })
+            })
+            .collect()
     }
 
     /// What a swap with these parameters executes at time `now` (unix
