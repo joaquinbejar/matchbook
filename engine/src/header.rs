@@ -98,8 +98,13 @@ pub struct MarketHeader {
     pub worst_bid: u32,
     /// Cached worst (lowest-priority) ask node, or NIL.
     pub worst_ask: u32,
+    /// Resting orders that carry an expiry. While zero, hosts can skip
+    /// reading the clock for orders without one.
+    pub expiring_orders: u32,
+    /// Padding.
+    pub padding: u32,
     /// Reserved for upgrades.
-    pub reserved: [u64; 14],
+    pub reserved: [u64; 13],
 }
 
 const _: () = assert!(core::mem::size_of::<MarketHeader>() == HEADER_SIZE);

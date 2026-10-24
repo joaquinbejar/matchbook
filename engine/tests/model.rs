@@ -507,7 +507,9 @@ proptest! {
                         quote_budget: budget,
                         match_limit: ml,
                     };
-                    let mut a = m.place_order(seats[t], &p, now, &mut NoopSink);
+                    // Hosts skip the clock when nothing can expire; results must not change.
+                    let eng_now = if m.needs_clock(p.expires_at != 0) { now } else { 0 };
+                    let mut a = m.place_order(seats[t], &p, eng_now, &mut NoopSink);
                     let b = md.place(t, &p, now);
                     if let Ok(out) = a.as_mut() {
                         if let Some(id) = out.order_id {
@@ -558,7 +560,8 @@ proptest! {
                 Op::Swap { side, lots, budget, limit, ml } => {
                     let side = if side { Side::Bid } else { Side::Ask };
                     let sp = SwapParams { side, base_lots: lots, quote_budget: budget, limit_price: limit, match_limit: ml };
-                    let a = m.swap(&sp, now, &mut NoopSink);
+                    let eng_now = if m.needs_clock(false) { now } else { 0 };
+                    let a = m.swap(&sp, eng_now, &mut NoopSink);
                     let b = md.match_book(None, side, limit, lots, (side == Side::Bid).then_some(budget), SelfTradeBehavior::CancelProvide, ml, now);
                     let (fl, fq, ff, touched, _) = b.unwrap();
                     let a = a.unwrap();

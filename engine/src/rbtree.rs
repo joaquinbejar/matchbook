@@ -501,7 +501,10 @@ mod tests {
                     if x % 2 == 0 {
                         t.insert(i).unwrap();
                     } else {
-                        let (lo, hi) = (min(t.nodes, *t.root).unwrap(), max(t.nodes, *t.root).unwrap());
+                        let (lo, hi) = (
+                            min(t.nodes, *t.root).unwrap(),
+                            max(t.nodes, *t.root).unwrap(),
+                        );
                         t.insert_with_edges(i, lo, hi).unwrap();
                     }
                     live.push(i);

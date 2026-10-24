@@ -40,6 +40,24 @@ pub fn process_instruction(
     }
 }
 
+/// Reads the clock at most once, and only when an order can expire.
+#[derive(Default)]
+struct LazyClock(Option<u64>);
+
+impl LazyClock {
+    fn now(&mut self, m: &Market<'_>, incoming_expires: bool) -> Result<u64, ProgramError> {
+        if !m.needs_clock(incoming_expires) {
+            return Ok(0);
+        }
+        if let Some(t) = self.0 {
+            return Ok(t);
+        }
+        let t = now()?;
+        self.0 = Some(t);
+        Ok(t)
+    }
+}
+
 fn owner_bytes(a: &AccountView) -> [u8; 32] {
     a.address().to_bytes()
 }
@@ -234,9 +252,9 @@ fn place_order(accounts: &mut [AccountView], h: Header, r: &mut Reader<'_>) -> P
     {
         ensure_nodes(market, owner, 1)?;
     }
-    let ts = now()?;
     let mut data = market.try_borrow_mut()?;
     let mut m = Market::load_mut(&mut data).map_err(engine)?;
+    let ts = LazyClock::default().now(&m, p.expires_at != 0)?;
     let t = m
         .resolve_trader(&owner_bytes(owner), Some(hint))
         .map_err(engine)?;
@@ -287,13 +305,16 @@ fn batch_update(accounts: &mut [AccountView], h: Header, r: &mut Reader<'_>) -> 
     if n_cancels > MAX_BATCH || n_orders > MAX_BATCH {
         return Err(MatchbookError::TooManyItems.into());
     }
-    ensure_nodes(market, owner, u32::from(n_orders))?;
-    let ts = now()?;
+    if n_orders > 0 {
+        ensure_nodes(market, owner, u32::from(n_orders))?;
+    }
+    let any_expiry = r.any_expiry_after(usize::from(n_cancels));
     let mut data = market.try_borrow_mut()?;
     let mut m = Market::load_mut(&mut data).map_err(engine)?;
     let t = m
         .resolve_trader(&owner_bytes(owner), Some(hint))
         .map_err(engine)?;
+    let ts = LazyClock::default().now(&m, any_expiry)?;
     let s = &mut LogSink::new();
     if cancel_all != 0 {
         let side = match cancel_all {
@@ -335,11 +356,11 @@ fn swap(accounts: &mut [AccountView], h: Header, r: &mut Reader<'_>) -> ProgramR
     require_market(market)?;
     let a: SwapArgs = r.pod()?;
     let side = Side::from_u8(h.a).ok_or(MatchbookError::InvalidInstructionData)?;
-    let ts = now()?;
     let mut sink = LogSink::new();
     let (out, bump) = {
         let mut data = market.try_borrow_mut()?;
         let mut m = Market::load_mut(&mut data).map_err(engine)?;
+        let ts = LazyClock::default().now(&m, false)?;
         if !resolve_vault(&m, base_mint, base_vault, base_tp)?
             || resolve_vault(&m, quote_mint, quote_vault, quote_tp)?
         {

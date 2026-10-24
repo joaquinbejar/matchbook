@@ -185,6 +185,14 @@ impl<'a> Market<'a> {
         }
     }
 
+    /// Whether an operation needs the current time: true when a resting
+    /// order can expire or when an incoming order carries an expiry.
+    /// Hosts may pass any `now` (e.g. 0) when this is false.
+    #[must_use]
+    pub fn needs_clock(&self, incoming_expires: bool) -> bool {
+        incoming_expires || self.header.expiring_orders != 0
+    }
+
     /// Nodes that can be allocated without growing the buffer.
     #[must_use]
     pub fn free_nodes(&self) -> u32 {
@@ -560,6 +568,7 @@ impl<'a> Market<'a> {
             ..MarketTotals::default()
         };
         let mut seen_orders = 0u32;
+        let mut expiring = 0u32;
         for idx in 0..h.next_unused {
             let n = self.node(idx)?;
             if n.is(NodeTag::Trader) {
@@ -577,13 +586,16 @@ impl<'a> Market<'a> {
                     bad(order_key(side, o.price(), o.seq) != n_key(self.node(j)?))?;
                     bad(o.seq == 0 || o.seq > h.seq_num)?;
                     seen_orders = seen_orders.checked_add(1).ok_or(EngineError::Corrupted)?;
+                    if o.expires_at != 0 {
+                        expiring = expiring.checked_add(1).ok_or(EngineError::Corrupted)?;
+                    }
                     bad(seen_orders > h.order_count)?;
                     prev = j;
                     j = o.next;
                 }
             }
         }
-        bad(seen_orders != h.order_count)?;
+        bad(seen_orders != h.order_count || expiring != h.expiring_orders)?;
         Ok(totals)
     }
 }

@@ -165,6 +165,17 @@ impl<'a> Reader<'a> {
     pub fn u64(&mut self) -> Result<u64, MatchbookError> {
         self.pod()
     }
+
+    /// Whether any [`OrderArgs`] following `skip` u64 values carries an
+    /// expiry. Peeks without consuming.
+    pub fn any_expiry_after(&self, skip: usize) -> bool {
+        let rest = self.data.get(skip.saturating_mul(8)..).unwrap_or_default();
+        rest.chunks_exact(OrderArgs::LEN)
+            .any(|c| match bytemuck::try_from_bytes::<OrderArgs>(c) {
+                Ok(o) => o.expires_at != 0,
+                Err(_) => bytemuck::pod_read_unaligned::<OrderArgs>(c).expires_at != 0,
+            })
+    }
 }
 
 /// Arguments of [`Ix::CreateMarket`].

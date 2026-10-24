@@ -216,6 +216,9 @@ impl Market<'_> {
         }
         self.header.seq_num = seq;
         self.header.order_count = self.header.order_count.saturating_add(1);
+        if expires_at != 0 {
+            self.header.expiring_orders = self.header.expiring_orders.saturating_add(1);
+        }
         let id = order_id(seq, i);
         if wants_placed(sink) {
             let owner = self.trader(trader)?.owner;
@@ -235,10 +238,21 @@ impl Market<'_> {
     /// Removes order `i`, returns its remaining funds to the owner's free
     /// balance and frees the node.
     fn remove_order(&mut self, i: u32, reason: OutReason, sink: &mut impl EventSink) -> Result<()> {
-        let (side, prev, next, trader, price, lots) = {
+        let (side, prev, next, trader, price, lots, expiring) = {
             let o = self.order(i)?;
-            (side_of(o), o.prev, o.next, o.trader, o.price(), o.base_lots)
+            (
+                side_of(o),
+                o.prev,
+                o.next,
+                o.trader,
+                o.price(),
+                o.base_lots,
+                o.expires_at != 0,
+            )
         };
+        if expiring {
+            self.header.expiring_orders = self.header.expiring_orders.saturating_sub(1);
+        }
         let (best, worst) = match side {
             Side::Ask => (self.header.best_ask, self.header.worst_ask),
             Side::Bid => (self.header.best_bid, self.header.worst_bid),
