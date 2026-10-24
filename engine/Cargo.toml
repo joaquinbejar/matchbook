@@ -1,0 +1,19 @@
+[package]
+name = "matchbook-engine"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "Deterministic, allocation-free limit order book matching engine shared by the Matchbook Solana program and off-chain tools"
+license.workspace = true
+repository.workspace = true
+keywords = ["orderbook", "matching-engine", "solana", "clob", "no-std"]
+categories = ["no-std", "finance", "data-structures"]
+
+[dependencies]
+bytemuck = { workspace = true }
+
+[dev-dependencies]
+proptest = "1"
+
+[lints]
+workspace = true

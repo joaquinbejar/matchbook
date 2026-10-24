@@ -1,0 +1,47 @@
+[package]
+name = "matchbook-program"
+description = "Matchbook: crankless on-chain central limit order book for Solana"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[features]
+default = []
+no-entrypoint = []
+client = []
+
+[dependencies]
+matchbook-engine = { workspace = true }
+bytemuck = { workspace = true }
+pinocchio = { workspace = true }
+pinocchio-system = { workspace = true }
+pinocchio-token = { workspace = true }
+pinocchio-associated-token-account = { workspace = true }
+
+[target.'cfg(not(target_os = "solana"))'.dependencies]
+solana-address = { version = "2", features = ["curve25519"] }
+
+[dev-dependencies]
+matchbook-program = { path = ".", features = ["client", "no-entrypoint"] }
+litesvm = "0.18"
+litesvm-token = "0.18"
+solana-instruction = "~3.5.0"
+solana-keypair = "3.1.2"
+solana-signer = "3.0.1"
+solana-message = "4.2.4"
+solana-transaction = "4.1.5"
+solana-account = "4.3.0"
+solana-program-pack = "3.1.0"
+spl-associated-token-account-interface = "2.0.0"
+spl-token-interface = "3.0.0"
+solana-transaction-error = "~3.4.0"
+solana-instruction-error = "~2.5.0"
+solana-clock = "~3.2.0"
+
+[lints]
+workspace = true

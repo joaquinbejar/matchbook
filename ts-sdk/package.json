@@ -1,0 +1,58 @@
+{
+  "name": "@matchbook/sdk",
+  "version": "0.2.0",
+  "type": "module",
+  "description": "TypeScript SDK for Matchbook CLOB - type definitions and client library",
+  "main": "dist/cjs/index.js",
+  "module": "dist/esm/index.js",
+  "types": "dist/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/types/index.d.ts",
+      "import": "./dist/esm/index.js",
+      "require": "./dist/cjs/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "npm run build:esm && npm run build:cjs && npm run build:types",
+    "build:esm": "tsc -p tsconfig.esm.json",
+    "build:cjs": "tsc -p tsconfig.cjs.json && echo '{\"type\":\"commonjs\"}' > dist/cjs/package.json",
+    "build:types": "tsc -p tsconfig.types.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint src tests --ext .ts",
+    "lint:fix": "eslint src tests --ext .ts --fix",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run clean && npm run build"
+  },
+  "keywords": [
+    "matchbook",
+    "solana",
+    "clob",
+    "orderbook",
+    "trading",
+    "sdk"
+  ],
+  "author": "Matchbook Team",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/joaquinbejar/matchbook.git",
+    "directory": "ts-sdk"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^26.5.1",
+    "eslint": "^10.10.0",
+    "typescript": "^6.0.2",
+    "typescript-eslint": "^8.70.0",
+    "vitest": "^5.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

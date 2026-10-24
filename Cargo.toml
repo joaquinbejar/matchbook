@@ -1,0 +1,35 @@
+[workspace]
+members = ["engine", "program"]
+resolver = "2"
+
+[workspace.package]
+version = "1.0.0-beta.1"
+edition = "2021"
+authors = ["Joaquin Bejar <jb@taunais.com>"]
+license = "MIT"
+repository = "https://github.com/joaquinbejar/matchbook"
+
+[workspace.dependencies]
+matchbook-engine = { path = "engine", version = "1.0.0-beta.1" }
+matchbook-program = { path = "program", version = "1.0.0-beta.1", default-features = false, features = ["no-entrypoint"] }
+bytemuck = { version = "1.24", features = ["derive", "min_const_generics"] }
+pinocchio = { version = "0.11", features = ["cpi", "account-resize"] }
+pinocchio-system = "0.6"
+pinocchio-token = "0.7"
+pinocchio-associated-token-account = "0.4"
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+missing_docs = "deny"
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+indexing_slicing = "warn"
+
+[profile.release]
+overflow-checks = true
+lto = "fat"
+codegen-units = 1
