@@ -447,9 +447,9 @@ fn swap(accounts: &mut [AccountView], h: Header, r: &mut Reader<'_>) -> ProgramR
     let seeds = vault_seeds(market.address(), &bump);
     let signer = Signer::from(&seeds);
     let quote_net = out.quote_net(side);
-    let (in_vault, owed) = match side {
-        Side::Bid => (&*quote_vault, quote_net),
-        Side::Ask => (&*base_vault, out.base_atoms),
+    let (in_vault, owed, out_account) = match side {
+        Side::Bid => (&*quote_vault, quote_net, &*user_base),
+        Side::Ask => (&*base_vault, out.base_atoms, &*user_quote),
     };
     let received = if side == Side::Bid {
         out.base_atoms
@@ -460,6 +460,7 @@ fn swap(accounts: &mut [AccountView], h: Header, r: &mut Reader<'_>) -> ProgramR
         return Err(MatchbookError::SlippageExceeded.into());
     }
     let before = token_amount(in_vault)?;
+    let out_before = token_amount(out_account)?;
     match side {
         Side::Bid => {
             transfer(
@@ -508,6 +509,11 @@ fn swap(accounts: &mut [AccountView], h: Header, r: &mut Reader<'_>) -> ProgramR
     }
     if token_amount(in_vault)?.saturating_sub(before) != owed {
         return Err(MatchbookError::TransferAmountMismatch.into());
+    }
+    // What the user actually got: a Token-2022 transfer fee on the output
+    // mint is withheld from the engine's amount.
+    if token_amount(out_account)?.saturating_sub(out_before) < a.min_out {
+        return Err(MatchbookError::SlippageExceeded.into());
     }
     Ok(())
 }

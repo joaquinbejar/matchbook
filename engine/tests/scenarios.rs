@@ -531,3 +531,141 @@ fn reverse_order_flips_even_in_a_full_market() {
     let t = fx.check();
     assert_eq!(t.orders, 1);
 }
+
+fn stop_above(trigger: u64, order: OrderParams) -> StopParams {
+    StopParams {
+        trigger_price: trigger,
+        direction: TriggerDirection::Above,
+        order,
+        oco_with: 0,
+    }
+}
+
+#[test]
+fn reached_stops_fire_even_after_another_stop_moves_the_price_back() {
+    let mut fx = Fx::new(64, 0, 0);
+    let maker = fx.seat(1, BASE_LOT, 1_000_000);
+    let stopper = fx.seat(2, 2 * BASE_LOT, 0);
+    let taker = fx.seat(3, 0, 1_000_000);
+    let mut ev = Rec::default();
+    let mut m = fx.m();
+    m.place_order(maker, &OrderParams::limit(Side::Bid, 90, 10), 0, &mut ev)
+        .unwrap();
+    m.place_order(maker, &OrderParams::limit(Side::Ask, 110, 1), 0, &mut ev)
+        .unwrap();
+    for _ in 0..2 {
+        m.place_stop(
+            stopper,
+            &stop_above(100, OrderParams::limit(Side::Ask, 90, 1)),
+            0,
+        )
+        .unwrap();
+    }
+    // The trade at 110 sets off both stops; the first sells at 90.
+    m.place_order(taker, &OrderParams::limit(Side::Bid, 110, 1), 0, &mut ev)
+        .unwrap();
+    assert_eq!(m.header().last_price, 90);
+    assert_eq!(m.header().stop_count, 0);
+    assert_eq!(m.trader(stopper).unwrap().base_free, 0);
+    assert_eq!(m.trader(stopper).unwrap().quote_free, 2 * 90 * 10);
+    fx.check();
+}
+
+#[test]
+fn a_stop_backlog_survives_a_trade_that_moves_the_price_back() {
+    let mut fx = Fx::new(64, 0, 0);
+    let maker = fx.seat(1, BASE_LOT, 1_000_000);
+    let stopper = fx.seat(2, 6 * BASE_LOT, 0);
+    let taker = fx.seat(3, BASE_LOT, 1_000_000);
+    let mut ev = Rec::default();
+    let mut m = fx.m();
+    m.place_order(maker, &OrderParams::limit(Side::Bid, 95, 1), 0, &mut ev)
+        .unwrap();
+    m.place_order(maker, &OrderParams::limit(Side::Ask, 110, 1), 0, &mut ev)
+        .unwrap();
+    for _ in 0..5 {
+        m.place_stop(
+            stopper,
+            &stop_above(100, OrderParams::limit(Side::Ask, 200, 1)),
+            0,
+        )
+        .unwrap();
+    }
+    m.place_order(taker, &OrderParams::limit(Side::Bid, 110, 1), 0, &mut ev)
+        .unwrap();
+    assert_eq!(m.header().stop_count, 5 - AUTO_TRIGGER_LIMIT);
+    m.place_order(taker, &OrderParams::limit(Side::Ask, 95, 1), 0, &mut ev)
+        .unwrap();
+    // That trade still places reached stops, though it traded below them.
+    assert_eq!(m.header().last_price, 95);
+    assert_eq!(m.header().stop_count, 5 - 2 * AUTO_TRIGGER_LIMIT);
+    // A new stop at the reached trigger would fire at once: rejected.
+    assert_eq!(
+        m.place_stop(
+            stopper,
+            &stop_above(100, OrderParams::limit(Side::Ask, 200, 1)),
+            0,
+        ),
+        Err(EngineError::StopWouldTrigger)
+    );
+    assert_eq!(m.trigger_stops(0, 8, &mut ev).unwrap(), 1);
+    assert_eq!(m.header().stop_count, 0);
+    assert_eq!(m.header().stop_above_reach, 0);
+    fx.check();
+}
+
+#[test]
+fn a_market_with_stops_cannot_close() {
+    let mut fx = Fx::new(32, 0, 0);
+    let a = fx.seat(1, BASE_LOT, 0);
+    let mut m = fx.m();
+    let id = m
+        .place_stop(a, &stop_above(100, OrderParams::limit(Side::Ask, 90, 1)), 0)
+        .unwrap();
+    assert_eq!(
+        m.set_status(MarketStatus::Closed),
+        Err(EngineError::InvalidMarketParams)
+    );
+    m.cancel_order(a, id, &mut Rec::default()).unwrap();
+    m.set_status(MarketStatus::Closed).unwrap();
+    m.withdraw(a, BASE_LOT, 0).unwrap();
+}
+
+#[test]
+fn without_fees_an_exactly_funded_buy_fills() {
+    for ty in [
+        OrderType::Limit,
+        OrderType::ImmediateOrCancel,
+        OrderType::FillOrKill,
+    ] {
+        let mut fx = Fx::new(32, 0, 0);
+        let a = fx.seat(1, 2 * BASE_LOT, 0);
+        let b = fx.seat(2, 0, 2 * 100 * 10);
+        let mut ev = Rec::default();
+        let mut m = fx.m();
+        m.place_order(a, &OrderParams::limit(Side::Ask, 100, 2), 0, &mut ev)
+            .unwrap();
+        let r = m
+            .place_order(
+                b,
+                &OrderParams::limit(Side::Bid, 100, 2).with_type(ty),
+                0,
+                &mut ev,
+            )
+            .unwrap();
+        assert_eq!(r.filled_base_lots, 2, "{ty:?}");
+        assert_eq!(m.trader(b).unwrap().quote_free, 0);
+        fx.check();
+    }
+    // A stop locks exactly the notional too.
+    let mut fx = Fx::new(32, 0, 0);
+    let b = fx.seat(1, 0, 100 * 10);
+    fx.m()
+        .place_stop(
+            b,
+            &stop_above(100, OrderParams::limit(Side::Bid, 100, 1)),
+            0,
+        )
+        .unwrap();
+    fx.check();
+}

@@ -141,9 +141,11 @@ Each cycle the bot reads the market and the reference price, and:
    grow the position, never quotes more than the seat holds, and commits at most
    `--max-notional` quote tokens per side.
 4. Requotes only when the reference moved `--requote-bps` or one of its quotes filled. A
-   requote is one `BatchUpdate` that cancels the bot's quotes and places the new ones,
-   all post-only-slide, so the book never sees a half-updated ladder and a quote that
-   would cross reprices behind the book instead of failing.
+   requote is a `BatchUpdate` that cancels the bot's quotes and places the new ones, all
+   post-only-slide, so a quote that would cross reprices behind the book instead of
+   failing. A ladder too large for one transaction continues in more `BatchUpdate`s.
+   Quotes use only free funds and what the bot's own cancels release, never funds locked
+   in the seat's other orders or stops.
 
 Risk limits:
 

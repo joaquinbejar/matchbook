@@ -53,6 +53,9 @@ struct MStop {
 struct Model {
     stops: Vec<MStop>,
     last: u64,
+    /// Highest and lowest trade prices since the stops last caught up.
+    high: Option<u64>,
+    low: Option<u64>,
     base: [u64; TRADERS],
     quote: [u64; TRADERS],
     orders: Vec<MOrder>,
@@ -93,7 +96,12 @@ impl Model {
             Side::Ask => lots * BLS,
             Side::Bid => {
                 let n = lots * price * QLS;
-                n + fee(n) + u64::from(ml).min(lots)
+                let slack = if TAKER_BPS == 0 {
+                    0
+                } else {
+                    u64::from(ml).min(lots)
+                };
+                n + fee(n) + slack
             }
         }
     }
@@ -126,7 +134,17 @@ impl Model {
             return Err(EngineError::InvalidStop);
         }
         let above = sp.direction == TriggerDirection::Above;
-        if Self::met(above, sp.trigger_price, self.last) {
+        if !self.stops.iter().any(|s| s.above == above) {
+            if above {
+                self.high = None;
+            } else {
+                self.low = None;
+            }
+        }
+        let reach = if above { self.high } else { self.low };
+        if Self::met(above, sp.trigger_price, self.last)
+            || Self::met(above, sp.trigger_price, reach.unwrap_or(0))
+        {
             return Err(EngineError::StopWouldTrigger);
         }
         let partner = if sp.oco_with == 0 {
@@ -194,21 +212,24 @@ impl Model {
     fn run_stops(&mut self, now: u64, limit: u32) -> Result<u32> {
         let mut n = 0;
         while n < limit {
-            let last = self.last;
+            let high = self.high.map_or(self.last, |h| h.max(self.last));
+            let low = self.low.map_or(self.last, |l| l.min(self.last));
             let above = self
                 .stops
                 .iter()
-                .filter(|s| s.above && Self::met(true, s.trigger, last))
+                .filter(|s| s.above && Self::met(true, s.trigger, high))
                 .min_by_key(|s| (s.trigger, s.seq))
                 .map(|s| s.seq);
             let below = || {
                 self.stops
                     .iter()
-                    .filter(|s| !s.above && Self::met(false, s.trigger, last))
+                    .filter(|s| !s.above && Self::met(false, s.trigger, low))
                     .min_by_key(|s| (std::cmp::Reverse(s.trigger), s.seq))
                     .map(|s| s.seq)
             };
             let Some(seq) = above.or_else(below) else {
+                self.high = None;
+                self.low = None;
                 break;
             };
             n += 1;
@@ -441,6 +462,10 @@ impl Model {
         }
         if last != 0 {
             self.last = last;
+            if !self.stops.is_empty() {
+                self.high = Some(self.high.map_or(last, |h| h.max(last)));
+                self.low = Some(self.low.map_or(last, |l| l.min(last)));
+            }
         }
         Ok((fl, fq, ff, touched, lots))
     }

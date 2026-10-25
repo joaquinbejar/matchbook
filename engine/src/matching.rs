@@ -79,6 +79,17 @@ impl Market<'_> {
         }
     }
 
+    /// Extra quote atoms a taker may need because each of up to `fills`
+    /// fills (never more than `lots`) rounds its fee up: none without fees.
+    #[inline]
+    pub(crate) fn fee_slack(&self, fills: u32, lots: u64) -> u64 {
+        if self.header.taker_fee_bps == 0 {
+            0
+        } else {
+            u64::from(fills.max(1)).min(lots)
+        }
+    }
+
     /// Maker rebate for `quote` atoms, rounded down (never above the taker fee).
     #[inline]
     pub fn maker_rebate(&self, quote: u64) -> u64 {
@@ -679,6 +690,13 @@ impl Market<'_> {
         h.total_quote_atoms_traded = h.total_quote_atoms_traded.saturating_add(t.quote_atoms);
         if last_price != 0 {
             h.last_price = last_price;
+            if h.stop_count != 0 {
+                h.stop_above_reach = h.stop_above_reach.max(last_price);
+                h.stop_below_reach = match h.stop_below_reach {
+                    0 => last_price,
+                    r => r.min(last_price),
+                };
+            }
         }
         t.remaining = lots;
         Ok(t)
@@ -775,7 +793,7 @@ impl Market<'_> {
                 } else {
                     let notional = self.quote_for(p.base_lots, p.price)?;
                     let need = if reaches && p.order_type.takes() {
-                        let slack = u64::from(match_limit).min(p.base_lots);
+                        let slack = self.fee_slack(match_limit, p.base_lots);
                         add(add(notional, self.taker_fee(notional))?, slack)?
                     } else {
                         notional

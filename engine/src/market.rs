@@ -179,9 +179,12 @@ impl<'a> Market<'a> {
         MarketStatus::from_u32(self.header.status).ok_or(EngineError::Corrupted)
     }
 
-    /// Changes the status. Closing requires an empty book.
+    /// Changes the status. Closing requires an empty book and no stops, whose
+    /// funds a closed market could not release.
     pub fn set_status(&mut self, s: MarketStatus) -> Result<()> {
-        if s == MarketStatus::Closed && self.header.order_count != 0 {
+        if s == MarketStatus::Closed
+            && (self.header.order_count != 0 || self.header.stop_count != 0)
+        {
             return Err(EngineError::InvalidMarketParams);
         }
         self.header.status = s as u32;

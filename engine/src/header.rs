@@ -132,8 +132,15 @@ pub struct MarketHeader {
     /// Share of the taker fee paid to a trade's referrer, in basis points of
     /// the fee.
     pub referral_share_bps: u32,
+    /// Highest trade price that stops above have not yet caught up with, or
+    /// 0 when they have. Keeps a reached trigger armed when a later trade
+    /// moves the price back before the stop is placed.
+    pub stop_above_reach: u64,
+    /// Lowest trade price that stops below have not yet caught up with, or
+    /// 0 when they have.
+    pub stop_below_reach: u64,
     /// Reserved for upgrades.
-    pub reserved: [u64; 5],
+    pub reserved: [u64; 3],
 }
 
 const _: () = assert!(core::mem::size_of::<MarketHeader>() == HEADER_SIZE);

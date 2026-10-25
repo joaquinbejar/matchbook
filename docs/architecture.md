@@ -98,13 +98,17 @@ Two details make the flip reliable:
 
 A stop stores an order and a trigger: "above" fires when a trade happens at or above the
 trigger, "below" when one happens at or below it. Its funds are locked when it is placed:
-base for a sell, and for a buy the notional, the taker fee and a small margin for rounding.
-So a triggered order never fails for lack of funds.
+base for a sell, and for a buy the notional, the taker fee and, on a market with a fee, one
+atom a fill for its rounding. So a triggered order never fails for lack of funds.
 
 The header caches the lowest above-trigger and the highest below-trigger, so checking
 whether a trade set anything off is two comparisons. When it did, the instruction that
 traded places up to two triggered stops itself before returning. Any backlog is placed by
 `TriggerStops`, which anyone may call. No keeper network is involved.
+
+A trigger stays reached once a trade reaches it. The header keeps the highest and lowest
+trade prices since the stops last caught up, so a stop still fires when a triggered order,
+or a later trade while a backlog waits, moves the price back across its trigger.
 
 Two stops of one seat can be paired one-cancels-other. When either fires, the other is
 removed with reason `OcoCancelled`. A stop-loss and a take-profit around one position is

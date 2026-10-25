@@ -58,7 +58,7 @@ Sends the accrued fees to `destination`.
 | Header | `a`: 0 active, 1 cancel-only, 2 closed |
 
 Cancel-only allows cancels, withdrawals and fee collection. Closed allows withdrawals only
-and requires an empty book.
+and requires an empty book with no stops.
 
 ## Seats and balances
 
@@ -211,8 +211,8 @@ Permissionless. Matching skips expired orders anyway; pruning frees their nodes 
 
 Trades from the user's token accounts with no seat. For a buy, `base_lots` is the most to buy
 and `quote_budget` the most quote atoms to spend including fees; for a sell, `base_lots` is the
-amount to sell. The swap fails with `SlippageExceeded` if the user would receive less than
-`min_out` atoms. Disabled on permissioned markets.
+amount to sell. The swap fails with `SlippageExceeded` if the user receives less than
+`min_out` atoms, measured on the user's token account after any Token-2022 transfer fee. Disabled on permissioned markets.
 
 ## Errors
 

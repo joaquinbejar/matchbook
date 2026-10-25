@@ -41,7 +41,7 @@ impl Market<'_> {
             Side::Ask => self.base_for(lots),
             Side::Bid => {
                 let notional = self.quote_for(lots, price)?;
-                let slack = u64::from(match_limit.max(1)).min(lots);
+                let slack = self.fee_slack(match_limit, lots);
                 notional
                     .checked_add(self.taker_fee(notional))
                     .and_then(|v| v.checked_add(slack))
@@ -69,7 +69,23 @@ impl Market<'_> {
         if p.trigger_price == 0 || o.quote_budget.is_some() || o.reverse_spread != 0 {
             return Err(EngineError::InvalidStop);
         }
-        if met(p.direction, p.trigger_price, self.header.last_price) {
+        // With no stops on this side, a leftover reach means nothing.
+        let h = &mut *self.header;
+        let reach = match p.direction {
+            TriggerDirection::Above if h.stops_above_root == NIL => {
+                h.stop_above_reach = 0;
+                0
+            }
+            TriggerDirection::Below if h.stops_below_root == NIL => {
+                h.stop_below_reach = 0;
+                0
+            }
+            TriggerDirection::Above => h.stop_above_reach,
+            TriggerDirection::Below => h.stop_below_reach,
+        };
+        if met(p.direction, p.trigger_price, self.header.last_price)
+            || met(p.direction, p.trigger_price, reach)
+        {
             return Err(EngineError::StopWouldTrigger);
         }
         let partner = if p.oco_with == 0 {
@@ -269,15 +285,26 @@ impl Market<'_> {
         limit: u32,
         sink: &mut impl EventSink,
     ) -> Result<u32> {
+        // A stop fires if any trade since the stops last caught up reached its
+        // trigger, not only the latest one: placing a stop moves the price,
+        // and so can a later trade while a backlog waits.
         let mut n = 0;
         while n < limit {
             let h = &*self.header;
             let last = h.last_price;
-            let i = if met(TriggerDirection::Above, h.stop_above_min, last) {
+            let high = h.stop_above_reach.max(last);
+            let low = match h.stop_below_reach {
+                0 => last,
+                r => r.min(last),
+            };
+            let i = if met(TriggerDirection::Above, h.stop_above_min, high) {
                 crate::rbtree::min(self.nodes, h.stops_above_root)?
-            } else if met(TriggerDirection::Below, h.stop_below_max, last) {
+            } else if met(TriggerDirection::Below, h.stop_below_max, low) {
                 crate::rbtree::max(self.nodes, h.stops_below_root)?
             } else {
+                let h = &mut *self.header;
+                h.stop_above_reach = 0;
+                h.stop_below_reach = 0;
                 break;
             };
             n += 1;

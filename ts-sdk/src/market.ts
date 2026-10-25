@@ -342,7 +342,8 @@ export class MarketView {
         base += s.baseLots * bls;
       } else {
         const notional = s.baseLots * s.price * qls;
-        const limit = BigInt(Math.max(s.matchLimit, 1));
+        // One atom a fill for fee rounding, and none without a fee.
+        const limit = this.header.takerFeeBps === 0 ? 0n : BigInt(Math.max(s.matchLimit, 1));
         quote += notional + this.takerFee(notional) + (limit < s.baseLots ? limit : s.baseLots);
       }
     }
