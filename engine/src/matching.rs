@@ -574,6 +574,9 @@ impl Market<'_> {
         let book = side.opposite();
         let mut t = MatchTotals::default();
         let mut rebates = 0u64;
+        // A taker walks the book one way, so its first and last fills are
+        // the extremes of the prices it traded at.
+        let mut first_price = 0u64;
         let mut last_price = 0u64;
         let taker_owner = match taker {
             Taker::Seat(s) if wants_fills(sink) => Some(self.trader(s)?.owner),
@@ -675,6 +678,9 @@ impl Market<'_> {
                 self.remove_order_with::<false>(m, OutReason::Filled, sink)?;
             }
             lots -= fill;
+            if first_price == 0 {
+                first_price = price;
+            }
             last_price = price;
             t.base_lots = add(t.base_lots, fill)?;
             t.quote_atoms = add(t.quote_atoms, quote)?;
@@ -691,10 +697,15 @@ impl Market<'_> {
         if last_price != 0 {
             h.last_price = last_price;
             if h.stop_count != 0 {
-                h.stop_above_reach = h.stop_above_reach.max(last_price);
+                let (low, high) = if first_price <= last_price {
+                    (first_price, last_price)
+                } else {
+                    (last_price, first_price)
+                };
+                h.stop_above_reach = h.stop_above_reach.max(high);
                 h.stop_below_reach = match h.stop_below_reach {
-                    0 => last_price,
-                    r => r.min(last_price),
+                    0 => low,
+                    r => r.min(low),
                 };
             }
         }

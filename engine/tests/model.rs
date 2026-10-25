@@ -358,6 +358,7 @@ impl Model {
     ) -> Result<(u64, u64, u64, u32, u64)> {
         let (mut fl, mut fq, mut ff, mut touched) = (0, 0, 0, 0u32);
         let mut last = 0;
+        let (mut hi, mut lo) = (0, u64::MAX);
         while lots > 0 && touched < ml {
             let Some(&i) = self.book(side.opposite()).first() else {
                 break;
@@ -453,6 +454,8 @@ impl Model {
             }
             lots -= f;
             last = o.price;
+            hi = hi.max(o.price);
+            lo = lo.min(o.price);
             fl += f;
             fq += q;
             ff += tf;
@@ -463,8 +466,8 @@ impl Model {
         if last != 0 {
             self.last = last;
             if !self.stops.is_empty() {
-                self.high = Some(self.high.map_or(last, |h| h.max(last)));
-                self.low = Some(self.low.map_or(last, |l| l.min(last)));
+                self.high = Some(self.high.map_or(hi, |h| h.max(hi)));
+                self.low = Some(self.low.map_or(lo, |l| l.min(lo)));
             }
         }
         Ok((fl, fq, ff, touched, lots))

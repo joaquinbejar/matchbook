@@ -669,3 +669,53 @@ fn without_fees_an_exactly_funded_buy_fills() {
         .unwrap();
     fx.check();
 }
+
+#[test]
+fn a_sweep_sets_off_stops_at_every_price_it_traded() {
+    for above in [true, false] {
+        let mut fx = Fx::new(64, 0, 0);
+        let maker = fx.seat(1, 3 * BASE_LOT, 1_000_000);
+        let stopper = fx.seat(2, BASE_LOT, 1_000_000);
+        let taker = fx.seat(3, 2 * BASE_LOT, 1_000_000);
+        let mut ev = Rec::default();
+        let mut m = fx.m();
+        // The taker's one order trades at 110 then 90 (a sell), or at 90
+        // then 110 (a buy): both cross a trigger at 100.
+        let side = if above {
+            m.place_order(maker, &OrderParams::limit(Side::Bid, 110, 1), 0, &mut ev)
+                .unwrap();
+            m.place_order(maker, &OrderParams::limit(Side::Bid, 90, 1), 0, &mut ev)
+                .unwrap();
+            Side::Ask
+        } else {
+            m.place_order(maker, &OrderParams::limit(Side::Ask, 90, 1), 0, &mut ev)
+                .unwrap();
+            m.place_order(maker, &OrderParams::limit(Side::Ask, 110, 1), 0, &mut ev)
+                .unwrap();
+            Side::Bid
+        };
+        m.place_order(maker, &OrderParams::limit(Side::Ask, 1_000, 1), 0, &mut ev)
+            .unwrap();
+        m.place_order(maker, &OrderParams::limit(Side::Bid, 1, 1), 0, &mut ev)
+            .unwrap();
+        let stop = StopParams {
+            trigger_price: 100,
+            direction: if above {
+                TriggerDirection::Above
+            } else {
+                TriggerDirection::Below
+            },
+            // Rests far from the book, so it does not move the price.
+            order: OrderParams::limit(Side::Ask, 500, 1),
+            oco_with: 0,
+        };
+        // Before any trade, neither trigger is met.
+        m.place_stop(stopper, &stop, 0).unwrap();
+        let price = if above { 90 } else { 110 };
+        m.place_order(taker, &OrderParams::limit(side, price, 2), 0, &mut ev)
+            .unwrap();
+        assert_eq!(m.header().last_price, price, "above {above}");
+        assert_eq!(m.header().stop_count, 0, "above {above}");
+        fx.check();
+    }
+}
