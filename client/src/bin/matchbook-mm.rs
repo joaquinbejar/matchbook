@@ -13,20 +13,27 @@ use std::time::{Duration, Instant};
 
 use anyhow::{ensure, Context, Result};
 use clap::Parser;
-use matchbook_client::chain::{cluster_url, load_keypair, Chain, Fees, MarketCtx, Pubkey};
+use matchbook_client::chain::{
+    cluster_url, load_keypair, Chain, Fees, MarketCtx, Pubkey, MAX_TX_SIZE,
+};
 use matchbook_client::mm::{
     build_ladder, check_risk, moved, Inventory, Ladder, QuoteParams, RiskLimits, RiskVerdict,
 };
 use matchbook_client::price::PriceSource;
 use matchbook_client::ConnectArgs;
-use matchbook_sdk::engine::RestingOrder;
+use matchbook_sdk::engine::{RestingOrder, Side};
 use matchbook_sdk::ix::{self, CancelAll};
+use matchbook_sdk::OrderArgs;
 use solana_keypair::Keypair;
+use solana_message::Instruction;
 use solana_signer::Signer;
 
+/// Most order ids one batch cancels; more cancel every order of the seat.
+const MAX_CANCELS: usize = 32;
 /// Client order id the bot tags its quotes with ("MM").
 const DEFAULT_CLIENT_ID: u64 = 0x4d4d;
-/// Orders per side one batch can carry.
+/// Levels per side. The orders of a requote that do not fit one
+/// transaction go out in more.
 const MAX_LEVELS: u32 = 16;
 
 #[derive(Parser)]
@@ -149,47 +156,109 @@ impl Bot {
             .collect())
     }
 
-    fn inventory(&self) -> Result<Inventory> {
+    /// The seat's inventory. What the ladder can use is the free balance
+    /// plus what cancelling `mine` releases, never funds locked elsewhere.
+    fn inventory(&self, mine: &[RestingOrder]) -> Result<Inventory> {
         let (_, t) = self
             .market
             .snap
             .seat(&self.owner)?
             .context("the seat is gone")?;
         let (lb, lq) = self.market.snap.locked(self.seat)?;
+        // Cancelling more than one batch holds cancels every order of the
+        // seat (see `cancel_ix`), so all of them are released.
+        let all;
+        let released = if mine.len() > MAX_CANCELS {
+            all = self.market.snap.seat_orders(self.seat)?;
+            &all[..]
+        } else {
+            mine
+        };
         let u = &self.market.units;
+        let (mut rb, mut rq) = (0u64, 0u64);
+        for o in released {
+            match o.side {
+                Side::Ask => rb = rb.saturating_add(o.base_lots.saturating_mul(u.base_lot_size)),
+                Side::Bid => {
+                    rq = rq.saturating_add(
+                        o.base_lots
+                            .saturating_mul(o.price)
+                            .saturating_mul(u.quote_lot_size),
+                    );
+                }
+            }
+        }
         Ok(Inventory {
             base: u.base_to_f64(t.base_free.saturating_add(lb)),
             quote: u.quote_to_f64(t.quote_free.saturating_add(lq)),
+            base_available: u.base_to_f64(t.base_free.saturating_add(rb)),
+            quote_available: u.quote_to_f64(t.quote_free.saturating_add(rq)),
         })
     }
 
     fn cancel_ix(&self, mine: &[RestingOrder]) -> (CancelAll, Vec<u64>) {
-        if mine.len() > 32 {
+        if mine.len() > MAX_CANCELS {
             (CancelAll::Both, Vec::new())
         } else {
             (CancelAll::None, mine.iter().map(|o| o.order_id).collect())
         }
     }
 
-    fn send_batch(&self, cancel_all: CancelAll, cancels: &[u64], ladder: &Ladder) -> Result<()> {
-        let orders = ladder.orders(self.client_id);
-        let ix = ix::batch_update(
+    fn batch_ix(
+        &self,
+        cancel_all: CancelAll,
+        cancels: &[u64],
+        orders: &[OrderArgs],
+    ) -> Instruction {
+        ix::batch_update(
             &self.signer.pubkey(),
             &self.market.snap.key(),
             self.seat,
             cancel_all,
             cancels,
-            &orders,
-        );
-        let e = self.chain.execute_from(&self.signer, &[ix], &[])?;
-        log(format!(
-            "requoted: {} cancels, {} orders, {} CU, {}",
-            cancels.len(),
-            orders.len(),
-            e.compute_units.unwrap_or(0),
-            e.signature
-        ));
-        Ok(())
+            orders,
+        )
+    }
+
+    /// Cancels and places the ladder. The first transaction carries the
+    /// cancels and as many orders as fit in [`MAX_TX_SIZE`]; the rest follow
+    /// in as many more as needed.
+    fn send_batch(&self, cancel_all: CancelAll, cancels: &[u64], ladder: &Ladder) -> Result<()> {
+        let orders = ladder.orders(self.client_id);
+        let payer = self.signer.pubkey();
+        let fits = |c: CancelAll, cs: &[u64], os: &[OrderArgs]| {
+            self.chain.tx_size(&payer, &[self.batch_ix(c, cs, os)]) <= MAX_TX_SIZE
+        };
+        let mut rest = &orders[..];
+        let (mut all, mut cs) = (cancel_all, cancels);
+        let mut sent = 0;
+        loop {
+            let mut n = 0;
+            while rest.get(..=n).is_some_and(|os| fits(all, cs, os)) {
+                n += 1;
+            }
+            ensure!(
+                n > 0 || rest.is_empty(),
+                "one order does not fit in a transaction"
+            );
+            let (now, later) = rest.split_at(n);
+            let e = self
+                .chain
+                .execute_from(&self.signer, &[self.batch_ix(all, cs, now)], &[])?;
+            sent += 1;
+            log(format!(
+                "requoted ({sent}): {} cancels, {} orders, {} CU, {}",
+                cs.len(),
+                now.len(),
+                e.compute_units.unwrap_or(0),
+                e.signature
+            ));
+            rest = later;
+            (all, cs) = (CancelAll::None, &[]);
+            if rest.is_empty() {
+                return Ok(());
+            }
+        }
     }
 
     fn pull(&mut self, why: &str) -> Result<()> {
@@ -217,7 +286,8 @@ impl Bot {
                 self.last_reference
             }
         };
-        let inv = self.inventory()?;
+        let mine = self.my_orders()?;
+        let inv = self.inventory(&mine)?;
         if let Some(prev) = self.last_inventory {
             let db = inv.base - prev.base;
             if db.abs() > 1e-12 {
@@ -257,7 +327,6 @@ impl Bot {
         self.last_reference = reference;
 
         let ladder = build_ladder(reference, &inv, &self.params, &self.market.units);
-        let mine = self.my_orders()?;
         let lots: u64 = mine.iter().map(|o| o.base_lots).sum();
         let filled = mine.len() != self.last_count || lots != self.last_lots;
         if !(moved(self.last_quoted, reference, self.params.requote_bps) || filled) {
@@ -389,7 +458,7 @@ fn run() -> Result<()> {
     };
     bot.params.target_base = match a.target_base {
         Some(t) => t,
-        None => bot.inventory()?.base,
+        None => bot.inventory(&[])?.base,
     };
     log(format!(
         "quoting {} for seat {seat} of {owner} with {}{}",

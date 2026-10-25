@@ -5,12 +5,15 @@ import { homedir } from 'node:os';
 
 import {
   appendTransactionMessageInstructions,
+  blockhash,
+  compileTransaction,
   createKeyPairSignerFromBytes,
   createSolanaRpc,
   createTransactionMessage,
   generateKeyPairSigner,
   getBase64EncodedWireTransaction,
   getSignatureFromTransaction,
+  isTransactionWithinSizeLimit,
   lamports,
   pipe,
   setTransactionMessageFeePayerSigner,
@@ -160,6 +163,19 @@ export class Chain {
    * confirmation. Signers named by the instructions sign automatically;
    * `extra` adds more.
    */
+  /** Whether {@link Chain.send} could fit `ixs`, compute budget included, in one transaction. */
+  fits(ixs: Instruction[], feePayer: TransactionSigner = this.payer, extra: TransactionSigner[] = []): boolean {
+    const msg = pipe(
+      createTransactionMessage({ version: 0 }),
+      (m) => setTransactionMessageFeePayerSigner(feePayer, m),
+      // Any blockhash has the same size.
+      (m) => setTransactionMessageLifetimeUsingBlockhash({ blockhash: blockhash('11111111111111111111111111111111'), lastValidBlockHeight: 0n }, m),
+      (m) => appendTransactionMessageInstructions([...this.budget(), ...ixs], m),
+      (m) => (extra.length ? addSignersToTransactionMessage(extra, m) : m),
+    );
+    return isTransactionWithinSizeLimit(compileTransaction(msg));
+  }
+
   async send(ixs: Instruction[], feePayer: TransactionSigner = this.payer, extra: TransactionSigner[] = []): Promise<Signature> {
     const { value: blockhash } = await this.rpc.getLatestBlockhash({ commitment: 'confirmed' }).send();
     const msg = pipe(

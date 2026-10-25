@@ -24,6 +24,9 @@ use crate::units::Units;
 
 pub use solana_pubkey::Pubkey;
 
+/// Largest serialized transaction Solana accepts, in bytes.
+pub const MAX_TX_SIZE: usize = 1_232;
+
 /// Resolves a cluster name to an RPC URL. Anything else is taken as a URL.
 #[must_use]
 pub fn cluster_url(cluster: &str) -> String {
@@ -169,6 +172,19 @@ impl Chain {
             ));
         }
         out
+    }
+
+    /// Size in bytes of the transaction [`Chain::send_from`] would build
+    /// for `ixs` with `fee_payer` paying, compute budget included. Compare
+    /// it with [`MAX_TX_SIZE`].
+    #[must_use]
+    pub fn tx_size(&self, fee_payer: &Pubkey, ixs: &[Instruction]) -> usize {
+        let mut all = self.budget();
+        all.extend_from_slice(ixs);
+        let msg = Message::new(&all, Some(fee_payer));
+        let sigs = usize::from(msg.header.num_required_signatures);
+        // A short-vec length (one byte below 128) and 64 bytes a signature.
+        1 + 64 * sigs + msg.serialize().len()
     }
 
     /// Sends `ixs` signed by the payer and `signers`, and waits for

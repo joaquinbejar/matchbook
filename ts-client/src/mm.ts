@@ -40,10 +40,19 @@ export const defaultQuoteParams: QuoteParams = {
   requoteBps: 5,
 };
 
-/** Tokens the seat holds, free plus locked. */
+/** Tokens the seat holds: in total for risk, and what the next ladder can use. */
 export interface Inventory {
+  /** Base tokens, free plus locked in asks and stops. */
   base: number;
+  /** Quote tokens, free plus locked in bids and stops. */
   quote: number;
+  /**
+   * Base tokens the ladder can sell: free plus what the requote's own cancels
+   * release. Funds locked in other orders or stops stay out. Defaults to `base`.
+   */
+  baseAvailable?: number;
+  /** Quote tokens the ladder can spend, counted the same way. Defaults to `quote`. */
+  quoteAvailable?: number;
 }
 
 export const equity = (inv: Inventory, price: number) => inv.base * price + inv.quote;
@@ -86,8 +95,8 @@ export function buildLadder(reference: number, inv: Inventory, p: QuoteParams, u
   const quoteBids = deviation < p.maxPosition;
   const quoteAsks = -deviation < p.maxPosition;
 
-  let baseLeft = Math.max(inv.base, 0);
-  let quoteLeft = Math.max(inv.quote, 0);
+  let baseLeft = Math.max(inv.baseAvailable ?? inv.base, 0);
+  let quoteLeft = Math.max(inv.quoteAvailable ?? inv.quote, 0);
   if (p.maxNotional > 0) quoteLeft = Math.min(quoteLeft, p.maxNotional);
   let askNotionalLeft = p.maxNotional > 0 ? p.maxNotional : Infinity;
   let buyRoom = Math.max(p.maxPosition - deviation, 0);

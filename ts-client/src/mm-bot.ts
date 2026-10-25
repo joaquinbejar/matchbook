@@ -9,7 +9,7 @@
  */
 import { address, type Address, type KeyPairSigner } from '@solana/kit';
 import { Command } from 'commander';
-import { CancelSide, Permission, batchUpdate, type Order } from '@matchbook/sdk';
+import { CancelSide, Permission, Side, batchUpdate, type Order, type OrderArgs } from '@matchbook/sdk';
 
 import { Chain, DEFAULT_KEYPAIR, clusterUrl, loadKeypair, now, requireSeat, type MarketCtx } from './chain.js';
 import {
@@ -28,7 +28,9 @@ import { parsePriceSource, type PriceSource } from './price.js';
 
 /** Client order id of the bot's quotes ("MM"). */
 const DEFAULT_CLIENT_ID = 0x4d4dn;
+/** Levels per side. Orders of a requote that do not fit one transaction go out in more. */
 const MAX_LEVELS = 16;
+/** Most order ids one batch cancels; more cancel every order of the seat. */
 const MAX_BATCH = 32;
 
 const log = (msg: string) => console.error(`[${new Date().toISOString().slice(11, 19)}] ${msg}`);
@@ -60,31 +62,53 @@ class Bot {
     return this.market.view.ordersOf(this.owner).filter((o) => o.clientOrderId === this.clientId);
   }
 
-  inventory(): Inventory {
+  /** The seat's inventory. What the ladder can use is the free balance plus what cancelling `mine` releases. */
+  inventory(mine: Order[]): Inventory {
     const s = this.market.view.findSeat(this.owner);
     if (!s) throw new Error('the seat is gone');
     const l = this.market.view.locked(this.owner);
     const u = this.market.units;
-    return { base: u.baseToNumber(s.baseFree + l.base), quote: u.quoteToNumber(s.quoteFree + l.quote) };
+    // Cancelling more than one batch holds cancels every order of the seat.
+    const released = mine.length > MAX_BATCH ? this.market.view.ordersOf(this.owner) : mine;
+    let rb = 0n;
+    let rq = 0n;
+    for (const o of released) {
+      if (o.side === Side.Ask) rb += o.baseLots * u.baseLotSize;
+      else rq += o.baseLots * o.price * u.quoteLotSize;
+    }
+    return {
+      base: u.baseToNumber(s.baseFree + l.base),
+      quote: u.quoteToNumber(s.quoteFree + l.quote),
+      baseAvailable: u.baseToNumber(s.baseFree + rb),
+      quoteAvailable: u.quoteToNumber(s.quoteFree + rq),
+    };
   }
 
+  /**
+   * Cancels and places the ladder. The first transaction carries the cancels
+   * and as many orders as fit; the rest follow in as many more as needed.
+   */
   async sendBatch(mine: Order[], ladder: Ladder) {
     const all = mine.length > MAX_BATCH;
-    const orders = ladderOrders(ladder, this.clientId);
-    const e = await this.chain.execute(
-      [
-        batchUpdate({
-          owner: this.signer,
-          market: this.market.view.address,
-          seat: this.seat,
-          cancelAll: all ? CancelSide.Both : undefined,
-          cancels: all ? [] : mine.map((o) => o.orderId),
-          orders,
-        }),
-      ],
-      this.signer,
-    );
-    log(`requoted: ${all ? 'all' : mine.length} cancels, ${orders.length} orders, ${e.computeUnits ?? 0n} CU, ${e.signature}`);
+    const ix = (first: boolean, orders: OrderArgs[]) =>
+      batchUpdate({
+        owner: this.signer,
+        market: this.market.view.address,
+        seat: this.seat,
+        cancelAll: first && all ? CancelSide.Both : undefined,
+        cancels: first && !all ? mine.map((o) => o.orderId) : [],
+        orders,
+      });
+    let rest = ladderOrders(ladder, this.clientId);
+    for (let first = true, sent = 1; first || rest.length; first = false, sent++) {
+      let n = 0;
+      while (n < rest.length && this.chain.fits([ix(first, rest.slice(0, n + 1))], this.signer)) n++;
+      if (n === 0 && rest.length) throw new Error('one order does not fit in a transaction');
+      const e = await this.chain.execute([ix(first, rest.slice(0, n))], this.signer);
+      const cancels = first ? (all ? 'all' : mine.length) : 0;
+      log(`requoted (${sent}): ${cancels} cancels, ${n} orders, ${e.computeUnits ?? 0n} CU, ${e.signature}`);
+      rest = rest.slice(n);
+    }
   }
 
   async pull(why: string) {
@@ -105,7 +129,8 @@ class Bot {
     } catch (e) {
       log(`price source failed: ${(e as Error).message}`);
     }
-    const inv = this.inventory();
+    const mine = this.myOrders();
+    const inv = this.inventory(mine);
     if (this.lastInventory) {
       const db = inv.base - this.lastInventory.base;
       if (Math.abs(db) > 1e-12) {
@@ -129,7 +154,6 @@ class Bot {
     this.lastReference = reference;
 
     const ladder = buildLadder(reference, inv, this.params, this.market.units);
-    const mine = this.myOrders();
     const lots = mine.reduce((s, o) => s + o.baseLots, 0n);
     const filled = mine.length !== this.lastCount || lots !== this.lastLots;
     if (!(moved(this.lastQuoted, reference, this.params.requoteBps) || filled)) return true;
@@ -233,7 +257,7 @@ async function main() {
     BigInt(o.clientId),
     o.dryRun === true,
   );
-  params.targetBase = o.targetBase === undefined ? bot.inventory().base : Number(o.targetBase);
+  params.targetBase = o.targetBase === undefined ? bot.inventory([]).base : Number(o.targetBase);
   log(`quoting ${o.market} for seat ${seat} of ${owner} with ${signer.address}${o.dryRun ? ' (dry run)' : ''}`);
   log(`target ${params.targetBase} base, max position ${params.maxPosition}, ${levels} levels, spread ${params.spreadBps} bps, step ${params.stepBps} bps`);
 

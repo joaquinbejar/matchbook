@@ -60,16 +60,33 @@ impl Default for QuoteParams {
     }
 }
 
-/// What the seat holds, free and locked, in tokens.
+/// What the seat holds, in tokens: in total for risk, and what the next
+/// ladder can use.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct Inventory {
-    /// Base tokens, free plus locked in asks.
+    /// Base tokens, free plus locked in asks and stops.
     pub base: f64,
-    /// Quote tokens, free plus locked in bids.
+    /// Quote tokens, free plus locked in bids and stops.
     pub quote: f64,
+    /// Base tokens the ladder can sell: free plus what the requote's own
+    /// cancels release. Funds locked in other orders or stops stay out.
+    pub base_available: f64,
+    /// Quote tokens the ladder can spend, counted the same way.
+    pub quote_available: f64,
 }
 
 impl Inventory {
+    /// An inventory with everything available, as when nothing is locked.
+    #[must_use]
+    pub fn free(base: f64, quote: f64) -> Self {
+        Self {
+            base,
+            quote,
+            base_available: base,
+            quote_available: quote,
+        }
+    }
+
     /// Value in quote tokens at `price`.
     #[must_use]
     pub fn equity(&self, price: f64) -> f64 {
@@ -147,8 +164,8 @@ pub fn build_ladder(reference: f64, inv: &Inventory, p: &QuoteParams, u: &Units)
     let quote_bids = deviation < p.max_position;
     let quote_asks = -deviation < p.max_position;
 
-    let mut base_left = inv.base.max(0.0);
-    let mut quote_left = inv.quote.max(0.0);
+    let mut base_left = inv.base_available.max(0.0);
+    let mut quote_left = inv.quote_available.max(0.0);
     if p.max_notional > 0.0 {
         quote_left = quote_left.min(p.max_notional);
     }
@@ -290,10 +307,7 @@ mod tests {
     }
 
     fn rich() -> Inventory {
-        Inventory {
-            base: 100.0,
-            quote: 100_000.0,
-        }
+        Inventory::free(100.0, 100_000.0)
     }
 
     #[test]
@@ -327,10 +341,7 @@ mod tests {
 
     #[test]
     fn balances_and_notional_cap_the_size() {
-        let inv = Inventory {
-            base: 1.5,
-            quote: 200.0,
-        };
+        let inv = Inventory::free(1.5, 200.0);
         let p = QuoteParams {
             target_base: 1.5,
             ..QuoteParams::default()
@@ -383,5 +394,21 @@ mod tests {
         ));
         assert!(moved(150.0, 150.1, 5.0));
         assert!(!moved(150.0, 150.05, 5.0));
+    }
+
+    #[test]
+    fn locked_funds_outside_the_requote_are_not_quoted() {
+        // 10 base held, 9 of them in someone else's ask: 1 left to sell.
+        let inv = Inventory {
+            base_available: 1.0,
+            ..Inventory::free(10.0, 0.0)
+        };
+        let p = QuoteParams {
+            target_base: 10.0,
+            size: 5.0,
+            ..QuoteParams::default()
+        };
+        let l = build_ladder(150.0, &inv, &p, &units());
+        assert_eq!(l.asks.iter().map(|q| q.base_lots).sum::<u64>(), 1_000);
     }
 }
