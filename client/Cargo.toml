@@ -16,7 +16,7 @@ name = "matchbook-mm"
 path = "src/bin/matchbook-mm.rs"
 
 [dependencies]
-matchbook-sdk = { path = "../sdk" }
+matchbook-sdk = { path = "../sdk", version = "1.0.0" }
 anyhow = "1"
 base64 = "0.22"
 clap = { version = "4", features = ["derive", "env"] }

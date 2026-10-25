@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-10-26
+
+First stable release of the redesign. Published to crates.io: `matchbook-engine`,
+`matchbook-program`, `matchbook-sdk` and `matchbook-client`.
+
 ### Added
 - `matchbook` CLI in Rust (`client/`) and TypeScript (`ts-client/`): markets, deposits and
   withdrawals, every order type including reverse orders, stops and OCO brackets, seatless
@@ -91,5 +96,6 @@ playground. Not compatible with 0.x markets.
 - On-chain validation for all operations
 - Signed request authentication for trading endpoints
 
-[Unreleased]: https://github.com/joaquinbejar/matchbook/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/joaquinbejar/matchbook/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/joaquinbejar/matchbook/compare/v0.2.1...v1.0.0
 [0.1.0]: https://github.com/joaquinbejar/matchbook/releases/tag/v0.1.0

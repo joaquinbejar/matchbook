@@ -130,7 +130,7 @@ for (const e of parseEventsFromLogs(tx.meta.logMessages)) {
 
 ```toml
 [dependencies]
-matchbook-sdk = "1.0.0-beta.1"
+matchbook-sdk = "1.0.0"
 ```
 
 ### Instructions
