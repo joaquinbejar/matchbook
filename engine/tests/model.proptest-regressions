@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 54c4bf1b7bc9812328fdb59147429d34e3b4ca1defc523026e0cad1eb3c75faf # shrinks to ops = [Place { t: 0, side: false, price: 1, lots: 1, ty: 0, stp: 0, exp: None, budget: None, ml: 1, coid: 0 }, Place { t: 0, side: false, price: 1, lots: 1, ty: 0, stp: 0, exp: None, budget: None, ml: 1, coid: 0 }]
+cc 68b722bd1e3cb3de2a157f9bf9026d182c2735be65c3b4a5f65fee06159256a7 # shrinks to ops = [Place { t: 0, side: false, price: 14, lots: 1, ty: 0, stp: 0, exp: None, budget: None, ml: 1, coid: 0 }, Place { t: 0, side: true, price: 13, lots: 1, ty: 0, stp: 0, exp: None, budget: None, ml: 1, coid: 0 }, Swap { side: false, lots: 1, budget: 0, limit: 1, ml: 1 }]

@@ -1,311 +1,160 @@
 # Architecture
 
-This document describes the system architecture of Matchbook, a high-performance Central Limit Order Book (CLOB) on Solana.
+MatchBook is three layers over one piece of code:
 
-## Overview
+- **`matchbook-engine`** is the order book itself: a `no_std` Rust library with no
+  allocator that operates on a byte buffer. It knows nothing about Solana.
+- **`matchbook-program`** is a thin Pinocchio program that maps instructions onto engine
+  calls, moves tokens and logs events.
+- **Clients** (the Rust SDK, the TypeScript SDK, the Jupiter adapter and the WebAssembly
+  playground) decode the same buffer. The Rust clients run the engine itself, so a quote
+  is computed by the code that will execute the trade.
 
-Matchbook consists of three main layers:
+## The market account
 
-1. **On-chain Program**: Solana smart contract managing order books and matching
-2. **Off-chain Services**: Indexer, API server, and crank for data access and automation
-3. **Client SDKs**: Rust and TypeScript libraries for integration
-
-## System Architecture
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                                 Clients                                      │
-│              (Web Apps, Mobile Apps, Trading Bots, Market Makers)            │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                      │
-          ┌───────────────────────────┼───────────────────────────┐
-          │                           │                           │
-          ▼                           ▼                           ▼
-   ┌─────────────┐            ┌─────────────┐            ┌─────────────┐
-   │  REST API   │            │  WebSocket  │            │   Direct    │
-   │   Server    │            │   Server    │            │  On-chain   │
-   │   :8080     │            │   :8081     │            │   Access    │
-   └──────┬──────┘            └──────┬──────┘            └──────┬──────┘
-          │                          │                          │
-          └──────────────────────────┼──────────────────────────┘
-                                     │
-                    ┌────────────────┴────────────────┐
-                    │                                 │
-                    ▼                                 ▼
-          ┌─────────────────┐               ┌─────────────────┐
-          │     Indexer     │               │  Solana Program │
-          │    (Geyser)     │◄──────────────│   (On-chain)    │
-          └────────┬────────┘               └────────┬────────┘
-                   │                                 │
-                   ▼                                 │
-          ┌─────────────────┐                        │
-          │    Database     │                        │
-          │  (TimescaleDB)  │                        │
-          └─────────────────┘                        │
-                                                     │
-          ┌─────────────────┐                        │
-          │  Crank Service  │────────────────────────┘
-          │  (Matching)     │
-          └─────────────────┘
-```
-
-## Components
-
-### On-chain Program
-
-The Solana program is the trust layer that:
-
-- Manages market state and order books
-- Validates and executes order placement
-- Performs order matching
-- Handles fund custody in vaults
-- Emits events for off-chain indexing
-
-**Key Accounts:**
-
-| Account | Description |
-|---------|-------------|
-| `Market` | Market configuration and state |
-| `OrderBook` | Bids and asks stored in a red-black tree |
-| `EventQueue` | Queue of matching events to be processed |
-| `OpenOrders` | Per-user account tracking orders and balances |
-| `Vault` | Token accounts holding deposited funds |
-
-**Instructions:**
-
-| Instruction | Description |
-|-------------|-------------|
-| `CreateMarket` | Initialize a new trading pair |
-| `CreateOpenOrders` | Create user's trading account |
-| `Deposit` | Deposit tokens for trading |
-| `PlaceOrder` | Submit a new order |
-| `CancelOrder` | Cancel an existing order |
-| `MatchOrders` | Execute matching (called by crank) |
-| `ConsumeEvents` | Process event queue |
-| `Withdraw` | Withdraw available funds |
-
-### Indexer Service
-
-The indexer connects to Solana via Geyser plugin to:
-
-- Stream account updates in real-time
-- Parse program events and state changes
-- Store historical data in TimescaleDB
-- Provide data to API server
-
-**Data Flow:**
+A market is one account owned by the program:
 
 ```
-Solana Validator
-       │
-       │ Geyser gRPC
-       ▼
-┌─────────────┐
-│   Indexer   │
-│             │
-│ ┌─────────┐ │
-│ │ Parser  │ │
-│ └────┬────┘ │
-│      │      │
-│ ┌────▼────┐ │
-│ │ Writer  │ │
-│ └────┬────┘ │
-└──────┼──────┘
-       │
-       ▼
-┌─────────────┐
-│  Database   │
-│             │
-│ - Markets   │
-│ - Orders    │
-│ - Trades    │
-│ - Events    │
-└─────────────┘
+┌──────────────── 400-byte header ────────────────┬──── node pool: N × 88 bytes ────┐
+│ mints, vaults, authority, lot sizes, fees,      │ order │ seat │ free │ stop │ ... │
+│ tree roots, best/worst order cache, free list,  │       │      │      │      │     │
+│ counters, last trade price, stop trigger cache  │       │      │      │      │     │
+└─────────────────────────────────────────────────┴─────────────────────────────────┘
 ```
 
-### API Server
+Every node is 88 bytes and starts with the same tree prefix (tag, flags, left, right,
+parent). The tag says what the node holds:
 
-The API server provides:
+| Tag | Node | Lives in |
+| --- | --- | --- |
+| Order | A resting order: price, size, owner seat, client id, expiry, sequence number, reverse spread | The bids or asks tree, and its seat's order list |
+| Trader | A seat: owner key and free base and quote balances | The traders tree |
+| Delegate | A key that may act for a seat, with permissions and an expiry | The traders tree |
+| Stop | An order waiting for a trigger price | The stops-above or stops-below tree, and its seat's order list |
+| Free | A recycled node | The free list |
 
-- **REST API**: Queries, snapshots, transaction building
-- **WebSocket API**: Real-time streaming updates
+All links are `u32` node indices, so the account can be moved or grown without fixing up
+pointers. Creating a market pays rent for the header and the nodes you preallocate.
+When an instruction needs more nodes than are free, the program reallocates the account
+and charges the extra rent to the signer, so a market costs what it holds.
 
-**REST Endpoints:**
+### Order ids
 
-- `GET /v1/markets` - List markets
-- `GET /v1/markets/{address}/orderbook` - Order book snapshot
-- `GET /v1/markets/{address}/trades` - Recent trades
-- `POST /v1/tx/place-order` - Build order transaction
-- `POST /v1/tx/cancel-order` - Build cancel transaction
+An order id is `sequence << 24 | node index`. The sequence number comes from a market
+counter, so ids never repeat, and the index makes cancel by id a direct lookup: the program
+reads the node, checks that its sequence matches and that it belongs to the signer's seat,
+and unlinks it. No search.
 
-**WebSocket Channels:**
+### Trees
 
-- `book` - Order book updates
-- `trades` - Trade stream
-- `ticker` - Price ticker
-- `orders` - User order updates (authenticated)
+Bids, asks, seats and both stop books are red-black trees keyed by `u128`:
 
-### Crank Service
+| Tree | Key | Best entry |
+| --- | --- | --- |
+| Asks | `price << 64 \| seq` | Minimum: lowest price, then oldest |
+| Bids | `price << 64 \| !seq` | Maximum: highest price, then oldest |
+| Traders | First 16 bytes of the owner key | Lookup by owner |
+| Stops above | `trigger << 64 \| seq` | Minimum trigger |
+| Stops below | `trigger << 64 \| !seq` | Maximum trigger |
 
-The crank automates order matching:
+The header caches the best and worst order of each side and their prices. Matching starts
+at the cached best order and walks the tree in order. A new order that lands at either end
+of its side, which is where most orders land, is attached to the cached edge instead of
+being inserted from the root.
 
-1. Monitors markets for matchable orders
-2. Builds and submits `MatchOrders` transactions
-3. Consumes events from the event queue
-4. Earns rewards for successful matches
+## Matching without a crank
 
-**Crank Flow:**
+A taker order walks the opposite side from the best price while it crosses. Each fill
+updates both seats in the same instruction: the maker's locked funds become the taker's,
+the maker gets the rebate and the market keeps the rest of the taker fee. Nothing is
+deferred, so there is no event queue and no crank. OpenBook v2 instead writes each fill to
+an event heap that a separate transaction must process before the maker is paid.
 
-```
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│   Monitor   │────▶│   Match     │────▶│   Consume   │
-│   Markets   │     │   Orders    │     │   Events    │
-└─────────────┘     └─────────────┘     └─────────────┘
-       │                   │                   │
-       │                   │                   │
-       ▼                   ▼                   ▼
-  Check for           Submit TX           Process
-  crossed             to Solana           event queue
-  orders
-```
+Funds live in seats. A resting order locks base (asks) or quote (bids) from its seat's free
+balance, and a cancel unlocks it. Withdrawals move free balances back to the owner's token
+accounts. A wallet without a seat can still trade through `Swap`, which matches like an
+immediate-or-cancel order and settles straight to its token accounts.
 
-## Data Flow
+Each operation validates everything before it changes anything, so an error leaves the
+market exactly as it was. Expired orders met while matching are removed and skipped.
 
-### Order Placement
+## Reverse orders
 
-```
-1. Client builds order parameters
-2. Client calls POST /v1/tx/place-order
-3. API returns unsigned transaction
-4. Client signs with wallet
-5. Client submits to Solana
-6. Program validates and places order
-7. Indexer detects account change
-8. Database updated
-9. WebSocket broadcasts update
-```
+A reverse order carries a spread in parts per million. When it fills, the filled size is
+re-posted on the other side: a filled bid at price P becomes an ask at
+`ceil(P × (1 + spread))`, and a filled ask becomes a bid at `floor(P × (1 − spread))`.
+Rounding is always away from the fill, so the maker never gets less than the spread.
 
-### Order Matching
+Two details make the flip reliable:
 
-```
-1. Crank detects crossed orders (bid >= ask)
-2. Crank builds MatchOrders transaction
-3. Transaction submitted to Solana
-4. Program executes matching:
-   - Updates order quantities
-   - Transfers funds between vaults
-   - Emits Fill events to queue
-5. Crank calls ConsumeEvents
-6. Events processed, balances updated
-7. Indexer records trades
-8. WebSocket broadcasts trade
-```
+- **Space is reserved up front.** A reverse order needs two nodes to rest, its own and one
+  held for its partner. `header.reverse_reserve` counts the held nodes and other operations
+  cannot use them, so a flip never fails because the market is full.
+- **Partners merge.** An order and the order it flipped into are linked. Later fills of the
+  original add size to the existing partner at the partner's price instead of creating a
+  new order each time, so a grid keeps one order per rung.
 
-## Order Lifecycle
+## Stops
 
-```
-                    ┌─────────┐
-                    │  New    │
-                    └────┬────┘
-                         │
-                    PlaceOrder
-                         │
-                    ┌────▼────┐
-              ┌─────│  Open   │─────┐
-              │     └────┬────┘     │
-              │          │          │
-         CancelOrder   Match    Expire
-              │          │          │
-              ▼          ▼          ▼
-        ┌─────────┐ ┌─────────┐ ┌─────────┐
-        │Cancelled│ │ Filled  │ │ Expired │
-        └─────────┘ └─────────┘ └─────────┘
-                         │
-                    ┌────┴────┐
-                    │         │
-                    ▼         ▼
-              ┌─────────┐ ┌─────────┐
-              │ Partial │ │  Full   │
-              │  Fill   │ │  Fill   │
-              └─────────┘ └─────────┘
-```
+A stop stores an order and a trigger: "above" fires when a trade happens at or above the
+trigger, "below" when one happens at or below it. Its funds are locked when it is placed:
+base for a sell, and for a buy the notional, the taker fee and, on a market with a fee, one
+atom a fill for its rounding. So a triggered order never fails for lack of funds.
 
-## Security Model
+The header caches the lowest above-trigger and the highest below-trigger, so checking
+whether a trade set anything off is two comparisons. When it did, the instruction that
+traded places up to two triggered stops itself before returning. Any backlog is placed by
+`TriggerStops`, which anyone may call. No keeper network is involved.
 
-### Non-Custodial Design
+A trigger stays reached once a trade reaches it. The header keeps the highest and lowest
+trade prices since the stops last caught up, so a stop still fires when a triggered order,
+or a later trade while a backlog waits, moves the price back across its trigger.
 
-- Users deposit to market vaults, not platform wallets
-- Withdrawals only to original depositor
-- No admin keys can access user funds
+Two stops of one seat can be paired one-cancels-other. When either fires, the other is
+removed with reason `OcoCancelled`. A stop-loss and a take-profit around one position is
+the usual pair.
 
-### On-chain Validation
+## Events
 
-- All order parameters validated on-chain
-- Matching logic executed on-chain
-- Events provide audit trail
+Each instruction logs at most one `sol_log_data` entry with its events packed back to back:
 
-### Access Control
+| Tag | Event | Bytes | Fields |
+| --- | --- | --- | --- |
+| 1 | Fill | 73 | maker, maker order id, maker client id, price, base lots, maker remaining |
+| 2 | Out | 67 | owner, order id, client id, side, price, base lots, reason |
+| 3 | Reversed | 74 | owner, new or merged order id, client id, side, price, base lots, expiry |
 
-| Operation | Authorization |
-|-----------|---------------|
-| Create Market | Market authority |
-| Place Order | Order owner signature |
-| Cancel Order | Order owner signature |
-| Match Orders | Anyone (crank) |
-| Withdraw | Account owner signature |
+Out reasons are expired, self-trade, triggered and OCO-cancelled; fills and the owner's own
+cancels are implied by the instruction. The taker's identity, the quote amounts and fees
+follow from the instruction and the market's lot sizes and fee rates, so they are not
+repeated per fill. Both SDKs decode these logs.
 
-## Scalability
+## Vaults and tokens
 
-### Horizontal Scaling
+Each market's vaults are the associated token accounts of one PDA,
+`["vault_authority", market]`. Transfers use `transfer_checked`, so both SPL Token and
+Token-2022 mints work; the program checks that the vault received what it expected, which
+rejects mints with transfer fees.
 
-- **API Server**: Stateless, scale with load balancer
-- **Indexer**: Single writer, multiple readers
-- **Crank**: Multiple instances per market
+## Keeping compute low
 
-### Performance Optimizations
+The benchmarks in [benchmarks.md](benchmarks.md) come from choices like these:
 
-- **Order Book**: Red-black tree for O(log n) operations
-- **Event Queue**: Circular buffer for efficient processing
-- **Database**: TimescaleDB for time-series data
-- **Caching**: Redis for hot data
+- One account and index links, so every instruction touches the fewest accounts and never
+  deserializes the book.
+- Pinocchio instead of Anchor: no account deserialization framework, no allocator.
+- A fixed 8-byte instruction header with the seat index as a hint, so a trader's seat is
+  found without a tree search when the hint is right.
+- Edge attachment for new orders and cached best and worst orders.
+- The clock sysvar is read only when some order can expire.
+- Rare features (reverse orders, stops, referrals, delegates) sit on cold paths and are
+  checked through header counters, so an ordinary order pays almost nothing for them.
+- Events are built only for fields a sink uses, buffered, and logged once.
 
-## Deployment Architecture
+## Engine invariants
 
-### Production Setup
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        Kubernetes Cluster                        │
-│                                                                  │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐           │
-│  │   Indexer    │  │  API Server  │  │    Crank     │           │
-│  │   (1 pod)    │  │  (2-10 pods) │  │   (1 pod)    │           │
-│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘           │
-│         │                 │                 │                    │
-│         └─────────────────┼─────────────────┘                    │
-│                           │                                      │
-│  ┌────────────────────────┼────────────────────────┐            │
-│  │                        │                        │            │
-│  │  ┌──────────────┐  ┌───┴────────┐  ┌──────────┐│            │
-│  │  │  PostgreSQL  │  │   Redis    │  │Prometheus││            │
-│  │  │ (TimescaleDB)│  │  (Cache)   │  │ Grafana  ││            │
-│  │  └──────────────┘  └────────────┘  └──────────┘│            │
-│  │                    Data Layer                   │            │
-│  └─────────────────────────────────────────────────┘            │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              │ Geyser gRPC
-                              ▼
-                    ┌──────────────────┐
-                    │  Solana Cluster  │
-                    │    (Mainnet)     │
-                    └──────────────────┘
-```
-
-## Related Documentation
-
-- [Getting Started](./getting-started.md) - Integration guide
-- [API Reference](./api-reference.md) - REST API documentation
-- [WebSocket Reference](./websocket-reference.md) - WebSocket API documentation
-- [Deployment](./docker.md) - Docker and Kubernetes deployment
+`Market::check_invariants` walks the whole buffer and verifies the trees (ordering, colors,
+parent links), the free list, the seat order lists, the caches, the reverse reserve, stop
+pairing and the balance identity: free plus locked balances plus fees equal the tokens the
+vaults must hold. The engine's model test runs thousands of random operation sequences
+against a simple reference model and checks these invariants after each step.

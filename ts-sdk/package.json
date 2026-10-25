@@ -1,31 +1,25 @@
 {
   "name": "@matchbook/sdk",
-  "version": "0.2.1",
+  "version": "0.3.0",
+  "description": "TypeScript SDK for the MatchBook on-chain order book on Solana: instructions, market decoding, quotes and events",
   "type": "module",
-  "description": "TypeScript SDK for Matchbook CLOB - type definitions and client library",
-  "main": "dist/cjs/index.js",
-  "module": "dist/esm/index.js",
-  "types": "dist/types/index.d.ts",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/types/index.d.ts",
-      "import": "./dist/esm/index.js",
-      "require": "./dist/cjs/index.js"
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
     }
   },
   "files": [
     "dist"
   ],
+  "sideEffects": false,
   "scripts": {
-    "build": "npm run build:esm && npm run build:cjs && npm run build:types",
-    "build:esm": "tsc -p tsconfig.esm.json",
-    "build:cjs": "tsc -p tsconfig.cjs.json && echo '{\"type\":\"commonjs\"}' > dist/cjs/package.json",
-    "build:types": "tsc -p tsconfig.types.json",
+    "build": "tsc -p tsconfig.json",
     "test": "vitest run",
-    "test:watch": "vitest",
-    "lint": "eslint src tests --ext .ts",
-    "lint:fix": "eslint src tests --ext .ts --fix",
-    "typecheck": "tsc --noEmit",
+    "lint": "eslint src tests",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.test.json",
     "clean": "rm -rf dist",
     "prepublishOnly": "npm run clean && npm run build"
   },
@@ -34,25 +28,33 @@
     "solana",
     "clob",
     "orderbook",
+    "dex",
     "trading",
     "sdk"
   ],
-  "author": "Matchbook Team",
+  "author": "Joaquin Bejar",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/joaquinbejar/matchbook.git",
     "directory": "ts-sdk"
   },
+  "peerDependencies": {
+    "@solana/kit": "^8.0.0"
+  },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@types/node": "^26.6.5",
-    "eslint": "^10.12.0",
-    "typescript": "^6.0.3",
-    "typescript-eslint": "^8.71.2",
+    "@solana-program/system": "^0.14.1",
+    "@solana-program/token": "^0.16.1",
+    "@solana/kit": "^8.5.0",
+    "@types/node": "^26.5.1",
+    "eslint": "^10.10.0",
+    "litesvm": "^1.6.1",
+    "typescript": "^6.0.2",
+    "typescript-eslint": "^8.70.0",
     "vitest": "^5.0.5"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=20.0.0"
   }
 }

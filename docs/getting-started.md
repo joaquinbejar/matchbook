@@ -1,454 +1,83 @@
-# Getting Started
+# Getting started
 
-This guide walks you through integrating with Matchbook, from setting up your environment to placing your first order.
+## Requirements
 
-## Prerequisites
+- Rust (stable) and the Solana CLI with `cargo build-sbf` (Agave 2.x or 3.x)
+- Node.js 20 or later for the TypeScript SDK
+- Optional: the `wasm32-unknown-unknown` Rust target for the playground
 
-- **Solana Wallet**: A Solana wallet with SOL for transaction fees
-- **Tokens**: Base and quote tokens for the market you want to trade
-- **Development Environment**: Node.js 18+ or Rust 1.75+
-
-## Installation
-
-### TypeScript SDK
+## Build and test
 
 ```bash
-npm install @matchbook/sdk
-# or
-yarn add @matchbook/sdk
-# or
-pnpm add @matchbook/sdk
+cargo build-sbf --manifest-path program/Cargo.toml   # target/deploy/matchbook_program.so
+cargo test --workspace --all-features                # engine, program, Rust SDK
+(cd ts-sdk && npm install && npm test)               # TypeScript SDK against the built program
 ```
 
-### Rust SDK
+The program and SDK tests run the compiled program in [LiteSVM](https://github.com/LiteSVM/litesvm),
+so build it first. The engine's model test compares the engine against a simple reference
+implementation over random operation sequences; raise the number of cases with
+`MODEL_CASES=20000 cargo test -p matchbook-engine --test model`.
 
-Add to your `Cargo.toml`:
+## Deploy
 
-```toml
-[dependencies]
-matchbook-sdk = "0.1"
-tokio = { version = "1", features = ["full"] }
+```bash
+solana config set --keypair ~/.config/solana/id.json   # the wallet that pays and owns the upgrade authority
+./scripts/deploy.sh devnet                              # or localhost, mainnet-beta, or an RPC URL
 ```
 
-## Quick Start
+The program address comes from `target/deploy/matchbook_program-keypair.json`. Keep that
+file to redeploy to the same address. Without it the script generates a keypair and writes its
+address into `program/src/lib.rs` and `ts-sdk/src/constants.ts` before building, so the program
+and both SDKs agree (the Rust SDK takes the address from the program crate).
 
-### 1. Initialize the Client
+To try everything locally, start `solana-test-validator` in another terminal and deploy to
+`localhost`.
 
-#### TypeScript
+## A first market
 
-```typescript
-import { MatchbookClient } from '@matchbook/sdk';
+`ts-sdk/examples/demo-market.ts` creates two test mints and a market, gives the payer a seat,
+quotes a grid of reverse orders and runs a swap from a fresh wallet at an exact quote:
 
-// For mainnet
-const client = new MatchbookClient('https://api.matchbook.taunais.com');
-
-// For devnet
-const client = new MatchbookClient('https://api.devnet.matchbook.taunais.com');
+```bash
+cd ts-sdk
+RPC_URL=https://api.devnet.solana.com npx tsx examples/demo-market.ts
 ```
 
-#### Rust
-
-```rust
-use matchbook_sdk::Client;
-
-// For mainnet
-let client = Client::new("https://api.matchbook.taunais.com")?;
-
-// For devnet
-let client = Client::new("https://api.devnet.matchbook.taunais.com")?;
+```
+market 8sUt6FSSJTs8gmkSyZ8WoBXRu9F5TAeER88VqAGKEVUH  base 211f…  quote 2uMm…
+swap 4LQU…: quoted 199000000 base atoms for 29909680 quote atoms
+  fill 100 lots at 150100
+  reversed into a Bid of 100 lots at 149799
+  fill 99 lots at 150200
+  reversed into a Bid of 99 lots at 149899
+asks 150200x1 150300x100 150400x100 150500x100
+bids 149900x100 149899x99 149800x100 149799x100 149700x100
 ```
 
-### 2. Get Available Markets
+### Choosing lot sizes
 
-#### TypeScript
+Prices are integers in quote lots per base lot, so the lot sizes set the tick and the minimum
+size. For SOL (9 decimals) against USDC (6 decimals):
 
-```typescript
-const markets = await client.getMarkets();
+| Choice | Value | Effect |
+| --- | --- | --- |
+| `base_lot_size` | 1,000,000 | Sizes in steps of 0.001 SOL |
+| `quote_lot_size` | 1 | One price unit = 0.000001 USDC per 0.001 SOL = 0.001 USDC per SOL |
+| Price 150,000 | | 150.000 USDC per SOL |
 
-for (const market of markets) {
-  console.log(`${market.baseSymbol}/${market.quoteSymbol}: ${market.address}`);
-}
-```
+A smaller base lot gives finer sizes but coarser prices for the same quote lot, and the
+reverse. Pick the tick you want to quote in first.
 
-#### Rust
+### Fees
 
-```rust
-let markets = client.get_markets().await?;
+`taker_fee_bps` is charged on the quote amount of every taker fill. `maker_rebate_bps` goes to
+the maker from that fee, `referral_share_bps` of the fee goes to a referrer when one is
+passed, and the rest accrues to the market for the authority to collect.
 
-for market in &markets {
-    println!("{}/{}: {}", market.base_symbol, market.quote_symbol, market.address);
-}
-```
+## Next
 
-### 3. Get Order Book
-
-#### TypeScript
-
-```typescript
-const orderbook = await client.getOrderbook(marketAddress, { depth: 20 });
-
-console.log('Best bid:', orderbook.bids[0]);
-console.log('Best ask:', orderbook.asks[0]);
-```
-
-#### Rust
-
-```rust
-let orderbook = client.get_orderbook(&market_address, Some(20)).await?;
-
-println!("Best bid: {:?}", orderbook.bids.first());
-println!("Best ask: {:?}", orderbook.asks.first());
-```
-
-### 4. Create Open Orders Account
-
-Before trading, you need an Open Orders account for each market:
-
-#### TypeScript
-
-```typescript
-import { Keypair } from '@solana/web3.js';
-
-const wallet = Keypair.fromSecretKey(/* your secret key */);
-
-// Check if account exists
-const openOrders = await client.getOpenOrders(wallet.publicKey, marketAddress);
-
-if (!openOrders) {
-  // Create the account
-  const tx = await client.createOpenOrders({
-    market: marketAddress,
-    owner: wallet.publicKey,
-  });
-  
-  // Sign and send
-  tx.sign([wallet]);
-  const signature = await client.sendTransaction(tx);
-  console.log('Open Orders created:', signature);
-}
-```
-
-#### Rust
-
-```rust
-use solana_sdk::signer::Signer;
-
-let wallet = /* your keypair */;
-
-// Check if account exists
-let open_orders = client.get_open_orders(&wallet.pubkey(), &market_address).await?;
-
-if open_orders.is_none() {
-    // Create the account
-    let tx = client.create_open_orders(CreateOpenOrdersParams {
-        market: market_address,
-        owner: wallet.pubkey(),
-    }).await?;
-    
-    // Sign and send
-    let signature = client.sign_and_send(&tx, &[&wallet]).await?;
-    println!("Open Orders created: {}", signature);
-}
-```
-
-### 5. Deposit Funds
-
-Deposit tokens to your Open Orders account:
-
-#### TypeScript
-
-```typescript
-// Deposit 100 USDC (6 decimals)
-const tx = await client.deposit({
-  market: marketAddress,
-  owner: wallet.publicKey,
-  amount: 100_000_000n, // 100 USDC
-  side: 'quote', // 'base' for base token, 'quote' for quote token
-});
-
-tx.sign([wallet]);
-const signature = await client.sendTransaction(tx);
-console.log('Deposited:', signature);
-```
-
-#### Rust
-
-```rust
-// Deposit 100 USDC (6 decimals)
-let tx = client.deposit(DepositParams {
-    market: market_address,
-    owner: wallet.pubkey(),
-    amount: 100_000_000, // 100 USDC
-    side: Side::Quote,
-}).await?;
-
-let signature = client.sign_and_send(&tx, &[&wallet]).await?;
-println!("Deposited: {}", signature);
-```
-
-### 6. Place an Order
-
-#### TypeScript
-
-```typescript
-import { Side, OrderType, TimeInForce } from '@matchbook/sdk';
-
-const tx = await client.placeOrder({
-  market: marketAddress,
-  owner: wallet.publicKey,
-  side: Side.Bid,
-  price: '100.50', // Price in quote currency
-  quantity: '1.0', // Quantity in base currency
-  orderType: OrderType.Limit,
-  timeInForce: TimeInForce.GTC, // Good-til-cancelled
-  clientOrderId: 12345, // Optional: your order ID
-});
-
-tx.sign([wallet]);
-const signature = await client.sendTransaction(tx);
-console.log('Order placed:', signature);
-```
-
-#### Rust
-
-```rust
-use matchbook_sdk::{Side, OrderType, TimeInForce};
-
-let tx = client.place_order(PlaceOrderParams {
-    market: market_address,
-    owner: wallet.pubkey(),
-    side: Side::Bid,
-    price: 100_500_000, // $100.50 in base units (6 decimals)
-    quantity: 1_000_000_000, // 1.0 in base units (9 decimals)
-    order_type: OrderType::Limit,
-    time_in_force: TimeInForce::GTC,
-    client_order_id: Some(12345),
-    ..Default::default()
-}).await?;
-
-let signature = client.sign_and_send(&tx, &[&wallet]).await?;
-println!("Order placed: {}", signature);
-```
-
-### 7. Cancel an Order
-
-#### TypeScript
-
-```typescript
-const tx = await client.cancelOrder({
-  market: marketAddress,
-  owner: wallet.publicKey,
-  orderId: '340282366920938463463374607431768211455',
-  side: Side.Bid,
-});
-
-tx.sign([wallet]);
-const signature = await client.sendTransaction(tx);
-console.log('Order cancelled:', signature);
-```
-
-#### Rust
-
-```rust
-let tx = client.cancel_order(CancelOrderParams {
-    market: market_address,
-    owner: wallet.pubkey(),
-    order_id: order_id,
-    side: Side::Bid,
-}).await?;
-
-let signature = client.sign_and_send(&tx, &[&wallet]).await?;
-println!("Order cancelled: {}", signature);
-```
-
-### 8. Withdraw Funds
-
-#### TypeScript
-
-```typescript
-const tx = await client.withdraw({
-  market: marketAddress,
-  owner: wallet.publicKey,
-});
-
-tx.sign([wallet]);
-const signature = await client.sendTransaction(tx);
-console.log('Withdrawn:', signature);
-```
-
-## WebSocket Streaming
-
-### Subscribe to Order Book Updates
-
-#### TypeScript
-
-```typescript
-import { MatchbookWebSocket } from '@matchbook/sdk';
-
-const ws = new MatchbookWebSocket('wss://ws.matchbook.taunais.com');
-
-ws.on('open', () => {
-  // Subscribe to order book
-  ws.subscribe('book', marketAddress, { depth: 20 });
-  
-  // Subscribe to trades
-  ws.subscribe('trades', marketAddress);
-});
-
-ws.on('book_snapshot', (data) => {
-  console.log('Order book snapshot:', data);
-});
-
-ws.on('book_update', (data) => {
-  console.log('Order book update:', data);
-});
-
-ws.on('trade', (data) => {
-  console.log('New trade:', data);
-});
-
-ws.connect();
-```
-
-#### Rust
-
-```rust
-use matchbook_sdk::WebSocketClient;
-
-let mut ws = WebSocketClient::connect("wss://ws.matchbook.taunais.com").await?;
-
-// Subscribe to order book
-ws.subscribe_book(&market_address, Some(20)).await?;
-
-// Subscribe to trades
-ws.subscribe_trades(&market_address).await?;
-
-// Handle messages
-while let Some(msg) = ws.next().await {
-    match msg? {
-        Message::BookSnapshot(snapshot) => {
-            println!("Snapshot: {:?}", snapshot);
-        }
-        Message::BookUpdate(update) => {
-            println!("Update: {:?}", update);
-        }
-        Message::Trade(trade) => {
-            println!("Trade: {:?}", trade);
-        }
-        _ => {}
-    }
-}
-```
-
-## Error Handling
-
-### TypeScript
-
-```typescript
-import { MatchbookError, ErrorCode } from '@matchbook/sdk';
-
-try {
-  const tx = await client.placeOrder(params);
-} catch (error) {
-  if (error instanceof MatchbookError) {
-    switch (error.code) {
-      case ErrorCode.InsufficientFunds:
-        console.error('Not enough funds to place order');
-        break;
-      case ErrorCode.InvalidPrice:
-        console.error('Price is invalid for this market');
-        break;
-      case ErrorCode.RateLimitExceeded:
-        console.error('Too many requests, please slow down');
-        break;
-      default:
-        console.error('Error:', error.message);
-    }
-  }
-}
-```
-
-### Rust
-
-```rust
-use matchbook_sdk::{Error, ErrorCode};
-
-match client.place_order(params).await {
-    Ok(tx) => { /* success */ }
-    Err(Error::Api { code, message }) => {
-        match code {
-            ErrorCode::InsufficientFunds => {
-                eprintln!("Not enough funds to place order");
-            }
-            ErrorCode::InvalidPrice => {
-                eprintln!("Price is invalid for this market");
-            }
-            _ => {
-                eprintln!("Error: {}", message);
-            }
-        }
-    }
-    Err(e) => {
-        eprintln!("Unexpected error: {}", e);
-    }
-}
-```
-
-## Best Practices
-
-### 1. Use Client Order IDs
-
-Always set `clientOrderId` to track your orders:
-
-```typescript
-const tx = await client.placeOrder({
-  // ...
-  clientOrderId: Date.now(), // Or your own ID scheme
-});
-```
-
-### 2. Handle Reconnections
-
-WebSocket connections may drop. Implement reconnection logic:
-
-```typescript
-ws.on('close', () => {
-  setTimeout(() => {
-    ws.connect();
-    // Resubscribe to channels
-  }, 1000);
-});
-```
-
-### 3. Validate Prices and Quantities
-
-Ensure values conform to market tick and lot sizes:
-
-```typescript
-const market = await client.getMarket(marketAddress);
-
-// Round price to tick size
-const price = Math.round(desiredPrice / market.tickSize) * market.tickSize;
-
-// Round quantity to lot size
-const quantity = Math.round(desiredQty / market.lotSize) * market.lotSize;
-```
-
-### 4. Monitor Your Orders
-
-Subscribe to the `orders` channel for real-time updates:
-
-```typescript
-ws.subscribe('orders', wallet.publicKey.toString());
-
-ws.on('order_update', (update) => {
-  console.log(`Order ${update.orderId}: ${update.status}`);
-});
-```
-
-## Next Steps
-
-- [API Reference](./api-reference.md) - Complete REST API documentation
-- [WebSocket Reference](./websocket-reference.md) - WebSocket API documentation
-- [SDK Guide](./sdk-guide.md) - Advanced SDK usage
-- [FAQ](./faq.md) - Frequently asked questions
+- [SDK guide](sdk-guide.md) for trading, quoting and decoding events from code.
+- [Instruction reference](instructions.md) for the wire format.
+- [Architecture](architecture.md) for how the book works.
+- The [playground](../playground/README.md) to try order types without a validator.

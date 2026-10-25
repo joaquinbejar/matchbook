@@ -1,0 +1,201 @@
+diff --git a/src/program/event_recorder.rs b/src/program/event_recorder.rs
+index dc5ee02..bfc5cf7 100644
+--- a/src/program/event_recorder.rs
++++ b/src/program/event_recorder.rs
+@@ -1,3 +1,5 @@
++#[allow(unused_imports)]
++use crate::program::stable_cpi::{invoke, invoke_signed};
+ use crate::{phoenix_log_authority, state::markets::MarketEvent};
+ use borsh::BorshSerialize;
+ use solana_program::{
+@@ -5,7 +7,7 @@ use solana_program::{
+     clock::Clock,
+     entrypoint::ProgramResult,
+     instruction::{AccountMeta, Instruction},
+-    program::invoke_signed,
++    
+     program_error::ProgramError,
+     pubkey::Pubkey,
+     sysvar::Sysvar,
+diff --git a/src/program/mod.rs b/src/program/mod.rs
+index 0455fa8..f09bcfc 100644
+--- a/src/program/mod.rs
++++ b/src/program/mod.rs
+@@ -9,6 +9,7 @@ pub mod error;
+ pub mod events;
+ pub mod instruction;
+ pub mod instruction_builders;
++pub mod stable_cpi;
+ pub mod status;
+ pub mod system_utils;
+ 
+diff --git a/src/program/processor/initialize.rs b/src/program/processor/initialize.rs
+index 1ac157e..ec3797e 100644
+--- a/src/program/processor/initialize.rs
++++ b/src/program/processor/initialize.rs
+@@ -1,3 +1,5 @@
++#[allow(unused_imports)]
++use crate::program::stable_cpi::{invoke, invoke_signed};
+ use crate::{
+     program::{
+         dispatch_market::load_with_dispatch_init,
+@@ -13,7 +15,7 @@ use crate::{
+ };
+ use borsh::{BorshDeserialize, BorshSerialize};
+ use solana_program::{
+-    account_info::AccountInfo, entrypoint::ProgramResult, program::invoke,
++    account_info::AccountInfo, entrypoint::ProgramResult, 
+     program_error::ProgramError, program_pack::Pack, pubkey::Pubkey, rent::Rent, sysvar::Sysvar,
+ };
+ use std::{mem::size_of, ops::DerefMut};
+diff --git a/src/program/stable_cpi.rs b/src/program/stable_cpi.rs
+new file mode 100644
+index 0000000..3b00d1b
+--- /dev/null
++++ b/src/program/stable_cpi.rs
+@@ -0,0 +1,111 @@
++//! CPI through the stable instruction layout the runtime expects; solana-program 1.14
++//! passes `Instruction` with whatever `Vec` layout the compiler picks.
++use solana_program::{
++    account_info::AccountInfo, entrypoint::ProgramResult, instruction::{AccountMeta, Instruction},
++    pubkey::Pubkey,
++};
++
++#[repr(C)]
++struct StableVec<T> {
++    ptr: *const T,
++    cap: usize,
++    len: usize,
++}
++
++#[repr(C)]
++#[derive(Clone, Copy)]
++struct StableAccountInfo {
++    key: *const Pubkey,
++    lamports: usize,
++    data: usize,
++    owner: *const Pubkey,
++    rent_epoch: u64,
++    is_signer: bool,
++    is_writable: bool,
++    executable: bool,
++}
++
++#[repr(C)]
++struct StableInstruction {
++    accounts: StableVec<AccountMeta>,
++    data: StableVec<u8>,
++    program_id: Pubkey,
++}
++
++#[cfg(target_os = "solana")]
++extern "C" {
++    fn sol_invoke_signed_rust(
++        instruction_addr: *const u8,
++        account_infos_addr: *const u8,
++        account_infos_len: u64,
++        signers_seeds_addr: *const u8,
++        signers_seeds_len: u64,
++    ) -> u64;
++}
++
++pub fn invoke(instruction: &Instruction, account_infos: &[AccountInfo]) -> ProgramResult {
++    invoke_signed(instruction, account_infos, &[])
++}
++
++pub fn invoke_signed(
++    instruction: &Instruction,
++    account_infos: &[AccountInfo],
++    signers_seeds: &[&[&[u8]]],
++) -> ProgramResult {
++    for meta in instruction.accounts.iter() {
++        for info in account_infos.iter() {
++            if meta.pubkey == *info.key {
++                if meta.is_writable {
++                    let _ = info.try_borrow_mut_lamports()?;
++                    let _ = info.try_borrow_mut_data()?;
++                } else {
++                    let _ = info.try_borrow_lamports()?;
++                    let _ = info.try_borrow_data()?;
++                }
++                break;
++            }
++        }
++    }
++    let ix = StableInstruction {
++        accounts: StableVec {
++            ptr: instruction.accounts.as_ptr(),
++            cap: instruction.accounts.capacity(),
++            len: instruction.accounts.len(),
++        },
++        data: StableVec {
++            ptr: instruction.data.as_ptr(),
++            cap: instruction.data.capacity(),
++            len: instruction.data.len(),
++        },
++        program_id: instruction.program_id,
++    };
++    let infos: Vec<StableAccountInfo> = account_infos
++        .iter()
++        .map(|a| StableAccountInfo {
++            key: a.key as *const Pubkey,
++            lamports: unsafe { core::mem::transmute_copy(&a.lamports) },
++            data: unsafe { core::mem::transmute_copy(&a.data) },
++            owner: a.owner as *const Pubkey,
++            rent_epoch: a.rent_epoch,
++            is_signer: a.is_signer,
++            is_writable: a.is_writable,
++            executable: a.executable,
++        })
++        .collect();
++    #[cfg(not(target_os = "solana"))]
++    let result: u64 = { let _ = (&ix, &infos, signers_seeds); 0 };
++    #[cfg(target_os = "solana")]
++    let result = unsafe {
++        sol_invoke_signed_rust(
++            &ix as *const _ as *const u8,
++            infos.as_ptr() as *const u8,
++            account_infos.len() as u64,
++            signers_seeds as *const _ as *const u8,
++            signers_seeds.len() as u64,
++        )
++    };
++    match result {
++        0 => Ok(()),
++        _ => Err(result.into()),
++    }
++}
+diff --git a/src/program/system_utils.rs b/src/program/system_utils.rs
+index 4096a9f..950e4cd 100644
+--- a/src/program/system_utils.rs
++++ b/src/program/system_utils.rs
+@@ -1,7 +1,9 @@
++#[allow(unused_imports)]
++use crate::program::stable_cpi::{invoke, invoke_signed};
+ use solana_program::{
+     account_info::AccountInfo,
+     entrypoint::ProgramResult,
+-    program::{invoke, invoke_signed},
++    
+     pubkey::Pubkey,
+     rent::Rent,
+     system_instruction,
+diff --git a/src/program/token_utils.rs b/src/program/token_utils.rs
+index 1d5f40b..486e2f4 100644
+--- a/src/program/token_utils.rs
++++ b/src/program/token_utils.rs
+@@ -1,3 +1,5 @@
++#[allow(unused_imports)]
++use crate::program::stable_cpi::{invoke, invoke_signed};
+ use std::{
+     fmt::Display,
+     ops::{Div, Rem},
+@@ -6,7 +8,7 @@ use std::{
+ use solana_program::{
+     account_info::AccountInfo,
+     entrypoint::ProgramResult,
+-    program::{invoke, invoke_signed},
++    
+     pubkey::Pubkey,
+ };
+ 

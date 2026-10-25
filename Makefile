@@ -1,208 +1,50 @@
-# Makefile for common tasks in a Rust project
-# Detect current branch
-CURRENT_BRANCH := $(shell git rev-parse --abbrev-ref HEAD)
+# Common tasks. Run `make` for the full check.
+SOLANA_BIN ?=
+export PATH := $(if $(SOLANA_BIN),$(SOLANA_BIN):,)$(PATH)
 
-
-# Default target
 .PHONY: all
-all: test fmt lint build
+all: fmt-check lint test
 
-# Build the project
-.PHONY: build
-build:
-	cargo build
+.PHONY: program
+program:
+	cargo build-sbf --manifest-path program/Cargo.toml
 
-.PHONY: release
-release:
-	cargo build --release
-
-# Run unit tests (main crate only)
 .PHONY: test
-test:
-	LOGLEVEL=WARN cargo test --lib
+test: program
+	cargo test --workspace --all-features
+	cd ts-sdk && npm test
+	cd ts-client && npm test
 
-# Run integration tests (requires API running)
-.PHONY: test-integration
-test-integration:
-	cargo test -p matchbook-tests
-
-# Run all tests
-.PHONY: test-all
-test-all: test test-integration
-
-# Run unit tests for all workspace members
-.PHONY: test-workspace
-test-workspace:
-	LOGLEVEL=WARN cargo test --workspace --lib
-
-# Format the code
-.PHONY: fmt
-fmt:
-	cargo +stable fmt --all
-
-# Check formatting
-.PHONY: fmt-check
-fmt-check:
-	cargo +stable fmt --check
-
-# Run Clippy for linting
-.PHONY: lint
-lint:
-	cargo clippy --all-targets --all-features --workspace -- -D warnings
-
-.PHONY: lint-fix
-lint-fix: 
-	cargo clippy --fix --all-targets --all-features --allow-dirty --allow-staged --workspace -- -D warnings
-
-# Clean the project
-.PHONY: clean
-clean:
-	cargo clean
-
-# Pre-push checks
-.PHONY: check
-check: test fmt-check lint
-
-# Run the project
-.PHONY: run
-run:
-	cargo run
-
-# Start API for testing (release mode)
-.PHONY: run-test-server
-run-test-server:
-	cargo run --release
-
-.PHONY: fix
-fix:
-	cargo fix --allow-staged --allow-dirty
-
-.PHONY: pre-push
-pre-push: fix fmt lint-fix test doc
-
-.PHONY: doc
-doc:
-	cargo clippy -- -W missing-docs
-
-.PHONY: doc-open
-doc-open:
-	cargo doc --open
-
-.PHONY: publish
-publish: readme
-	cargo login ${CARGO_REGISTRY_TOKEN}
-	cargo package
-	cargo publish
-
-.PHONY: coverage
-coverage:
-	export LOGLEVEL=WARN
-	cargo install cargo-tarpaulin --locked --version '>=0.37.5'
-	mkdir -p coverage
-	cargo tarpaulin --verbose --all-features --timeout 600 --out Xml --output-dir coverage --packages option-chain-matchbook-backend --packages matchbook-client
-
-.PHONY: coverage-html
-coverage-html:
-	export LOGLEVEL=WARN
-	cargo install cargo-tarpaulin --locked --version '>=0.37.5'
-	mkdir -p coverage
-	cargo tarpaulin --color Always --tests --all-targets --all-features --timeout 600 --out Html --output-dir coverage --packages option-chain-matchbook-backend --packages matchbook-client
-
-.PHONY: open-coverage
-open-coverage:
-	open coverage/tarpaulin-report.html
-
-# Rule to show git log
-git-log:
-	@if [ "$(CURRENT_BRANCH)" = "HEAD" ]; then \
-		echo "You are in a detached HEAD state. Please check out a branch."; \
-		exit 1; \
-	fi; \
-	echo "Showing git log for branch $(CURRENT_BRANCH) against main:"; \
-	git log main..$(CURRENT_BRANCH) --pretty=full
-
-.PHONY: create-doc
-create-doc:
-	cargo doc --no-deps --document-private-items
-
-.PHONY: readme
-readme: check-cargo-readme create-doc
-	cargo readme > README.md
-
-.PHONY: check-cargo-readme
-check-cargo-readme:
-	@command -v cargo-readme > /dev/null || (echo "Installing cargo-readme..."; cargo install cargo-readme)
-
-.PHONY: check-spanish
-check-spanish:
-	@rg -n --pcre2 -e '^\s*(//|///|//!|#|/\*|\*).*?[áéíóúÁÉÍÓÚñÑ¿¡]' \
-    	    --glob '!target/*' \
-    	    --glob '!**/*.png' \
-    	    . || (echo "❌  Spanish comments found"; exit 1)
-
-.PHONY: zip
-zip:
-	@echo "Creating $(ZIP_NAME) without any 'target' directories, 'Cargo.lock', and hidden files..."
-	@find . -type f \
-		! -path "*/target/*" \
-		! -path "./.*" \
-		! -name "Cargo.lock" \
-		! -name ".*" \
-		| zip -@ $(ZIP_NAME)
-	@echo "$(ZIP_NAME) created successfully."
-
-
-.PHONY: check-cargo-criterion
-check-cargo-criterion:
-	@command -v cargo-criterion > /dev/null || (echo "Installing cargo-criterion..."; cargo install cargo-criterion)
+.PHONY: model
+model:
+	MODEL_CASES=20000 cargo test -p matchbook-engine --test model --release
 
 .PHONY: bench
-bench: check-cargo-criterion
-	cargo criterion --output-format=quiet
+bench: program
+	cargo test -p matchbook-program --test bench -- --nocapture
 
-.PHONY: bench-show
-bench-show:
-	open target/criterion/report/index.html
+.PHONY: lint
+lint:
+	cargo clippy --workspace --all-targets --all-features -- -D warnings
+	cd ts-sdk && npm run lint && npm run typecheck
+	cd ts-client && npm run lint && npm run typecheck
 
-.PHONY: bench-save
-bench-save: check-cargo-criterion
-	cargo criterion --output-format quiet --history-id v0.3.2 --history-description "Version 0.3.2 baseline"
+.PHONY: fmt
+fmt:
+	cargo fmt --all
 
-.PHONY: bench-compare
-bench-compare: check-cargo-criterion
-	cargo criterion --output-format verbose
+.PHONY: fmt-check
+fmt-check:
+	cargo fmt --all --check
 
-.PHONY: bench-json
-bench-json: check-cargo-criterion
-	cargo criterion --message-format json
+.PHONY: playground
+playground:
+	./playground/build.sh
 
-.PHONY: bench-clean
-bench-clean:
-	rm -rf target/criterion
+.PHONY: deploy-devnet
+deploy-devnet:
+	./scripts/deploy.sh devnet
 
-
-.PHONY: workflow-coverage
-workflow-coverage:
-	DOCKER_HOST="$${DOCKER_HOST}" act push --job code_coverage_report \
-       -P ubuntu-latest=catthehacker/ubuntu:latest \
-       --privileged
-
-.PHONY: workflow-build
-workflow-build:
-	DOCKER_HOST="$${DOCKER_HOST}" act push --job build \
-       -P ubuntu-latest=catthehacker/ubuntu:latest
-
-.PHONY: workflow-lint
-workflow-lint:
-	DOCKER_HOST="$${DOCKER_HOST}" act push --job lint
-
-.PHONY: workflow-test
-workflow-test:
-	DOCKER_HOST="$${DOCKER_HOST}" act push --job run_tests
-
-.PHONY: workflow
-workflow: workflow-build workflow-lint workflow-test workflow-coverage
-
-.PHONY: generate_markdown
-generate_markdown:
-	./doc/generate_md_docs.sh
+.PHONY: e2e-clients
+e2e-clients: program
+	./scripts/e2e-clients.sh

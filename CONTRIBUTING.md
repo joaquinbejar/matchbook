@@ -10,10 +10,9 @@ By participating in this project, you agree to maintain a respectful and inclusi
 
 ### Prerequisites
 
-- Rust 1.75+
-- Solana CLI 1.18+
-- Node.js 18+ (for TypeScript SDK)
-- Docker (for local development)
+- Rust (stable)
+- Solana CLI with `cargo build-sbf` (Agave 2.x or 3.x)
+- Node.js 20+ (for the TypeScript SDK)
 
 ### Setup
 
@@ -29,8 +28,8 @@ By participating in this project, you agree to maintain a respectful and inclusi
    ```
 4. Install dependencies:
    ```bash
-   # Rust
-   cargo build
+   # The program (tests run the compiled .so)
+   cargo build-sbf --manifest-path program/Cargo.toml
    
    # TypeScript SDK
    cd ts-sdk && npm install
@@ -55,8 +54,9 @@ git checkout -b fix/your-bug-fix
 ### 3. Test Your Changes
 
 ```bash
-# Run all tests
-cargo test --all-features
+# Build the program, then run all tests
+cargo build-sbf --manifest-path program/Cargo.toml
+cargo test --workspace --all-features
 
 # Run clippy
 cargo clippy --all-targets --all-features -- -D warnings
@@ -67,6 +67,10 @@ cargo fmt --all --check
 # TypeScript SDK
 cd ts-sdk && npm test
 ```
+
+Changes to the engine or program should not raise compute costs. Compare before and after
+with `cargo test -p matchbook-program --test bench -- --nocapture`, and mention any change in
+the PR. `docs/benchmarks.md` explains how to run the comparison with other order books.
 
 ### 4. Commit Your Changes
 
@@ -100,8 +104,6 @@ Then create a Pull Request on GitHub.
 ## Coding Standards
 
 ### Rust
-
-Follow the guidelines in `.internalDoc/09-rust-guidelines.md`:
 
 - Use `#[must_use]` on pure functions
 - Use checked arithmetic (no `.unwrap()` in production code)

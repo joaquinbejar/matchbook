@@ -7,13 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
-- Makefile coverage targets require cargo-tarpaulin >= 0.37.5 (needed for Rust 1.99 coverage data) and use `--timeout 600` instead of `--timeout 0`
+### Added
+- `matchbook` CLI in Rust (`client/`) and TypeScript (`ts-client/`): markets, deposits and
+  withdrawals, every order type including reverse orders, stops and OCO brackets, seatless
+  swaps with exact quotes, book and balances, and session keys.
+- `matchbook-mm` market-making bot in both languages: inventory-skewed ladders requoted in
+  one batch, session-key signing, position, notional, loss, stale-price and jump limits.
+- Rust SDK: event decoding, a seat's orders, stops and locked funds, delegates, error names.
+- TypeScript SDK: `MarketView.locked`.
+- `scripts/e2e-clients.sh`: both clients against a local validator.
 
-## [0.2.1] - 2026-09-18
+## [1.0.0-beta.1] - 2026-10-24
 
-### Changed
-- Dependencies updated to latest stable versions (anchor-lang/anchor-spl 1.2, solana-program/solana-sdk 5.0, tokio 1.53, borsh 1.8, redis 1.7, rust_decimal 1.43; ts-sdk vitest 5.0.1)
+A redesign: a crankless order book in one growable account, with a new program, SDKs and
+playground. Not compatible with 0.x markets.
+
+### Added
+- `matchbook-engine`: a `no_std` order book over a byte buffer, with red-black trees in a
+  node pool, cached book edges and a model test against a reference implementation.
+- Crankless matching: makers are settled inside the taker's instruction.
+- Order types: limit, post-only, post-only slide, IOC, fill or kill, quote budgets, expiry,
+  client order ids, self-trade behaviors, batch updates of up to 32 cancels and 32 orders.
+- Reverse orders with a reserved node, so flips never fail for lack of space.
+- Stop orders and one-cancels-other brackets placed by the trades that reach them, plus a
+  permissionless `TriggerStops`.
+- Session keys: up to 8 delegates per seat with trade or cancel permissions and expiry.
+- Seatless swaps with a minimum-out guard, referral fee sharing and permissioned markets.
+- Token-2022 support through `transfer_checked`.
+- Rust SDK with exact quotes and a Jupiter `Amm` adapter; TypeScript SDK on `@solana/kit`.
+- WebAssembly playground, deploy script and a demo-market example.
+- Benchmarks against Manifest, Phoenix v1 and OpenBook v2.
+
+### Removed
+- The Anchor program, crank, indexer, REST and WebSocket services and their deployment files.
 
 ## [0.2.0] - 2026-09-16
 
