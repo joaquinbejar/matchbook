@@ -20,7 +20,7 @@ solana-instruction = "~3.5.0"
 bytemuck = { workspace = true }
 jupiter-amm-interface = { version = "=1.0.0-beta.0", optional = true }
 anyhow = { version = "1", optional = true }
-rust_decimal = { version = "1.36", optional = true }
+rust_decimal = { version = "1.43", optional = true }
 
 [dev-dependencies]
 litesvm = "0.18"

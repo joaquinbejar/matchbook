@@ -12,7 +12,7 @@ repository = "https://github.com/joaquinbejar/matchbook"
 [workspace.dependencies]
 matchbook-engine = { path = "engine", version = "1.0.0" }
 matchbook-program = { path = "program", version = "1.0.0", default-features = false, features = ["no-entrypoint"] }
-bytemuck = { version = "1.24", features = ["derive", "min_const_generics"] }
+bytemuck = { version = "1.25", features = ["derive", "min_const_generics"] }
 pinocchio = { version = "0.11", features = ["cpi", "account-resize"] }
 pinocchio-system = "0.6"
 pinocchio-token = "0.7"

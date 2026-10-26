@@ -18,10 +18,10 @@ path = "src/bin/matchbook-mm.rs"
 [dependencies]
 matchbook-sdk = { path = "../sdk", version = "1.0.0" }
 anyhow = "1"
-base64 = "0.22"
+base64 = "0.23"
 clap = { version = "4", features = ["derive", "env"] }
 ctrlc = "3"
-reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "rustls"] }
 serde_json = "1"
 solana-commitment-config = "3"
 solana-compute-budget-interface = "3"
