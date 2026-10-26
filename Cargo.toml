@@ -3,15 +3,15 @@ members = ["engine", "program", "sdk", "client", "playground"]
 resolver = "2"
 
 [workspace.package]
-version = "1.0.0"
+version = "1.0.1"
 edition = "2021"
 authors = ["Joaquin Bejar <jb@taunais.com>"]
 license = "MIT"
 repository = "https://github.com/joaquinbejar/matchbook"
 
 [workspace.dependencies]
-matchbook-engine = { path = "engine", version = "1.0.0" }
-matchbook-program = { path = "program", version = "1.0.0", default-features = false, features = ["no-entrypoint"] }
+matchbook-engine = { path = "engine", version = "1.0.1" }
+matchbook-program = { path = "program", version = "1.0.1", default-features = false, features = ["no-entrypoint"] }
 bytemuck = { version = "1.25", features = ["derive", "min_const_generics"] }
 pinocchio = { version = "0.11", features = ["cpi", "account-resize"] }
 pinocchio-system = "0.6"

@@ -14,7 +14,7 @@ jupiter = ["dep:jupiter-amm-interface", "dep:anyhow", "dep:rust_decimal"]
 
 [dependencies]
 matchbook-engine = { workspace = true }
-matchbook-program = { path = "../program", version = "1.0.0", features = ["no-entrypoint", "client"] }
+matchbook-program = { path = "../program", version = "1.0.1", features = ["no-entrypoint", "client"] }
 solana-pubkey = { version = "3.0.0", features = ["curve25519"] }
 solana-instruction = "~3.5.0"
 bytemuck = { workspace = true }
