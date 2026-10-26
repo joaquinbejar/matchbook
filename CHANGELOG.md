@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-10-26
+
+### Changed
+- Dependencies: reqwest 0.13, base64 0.23, bytemuck 1.25, rust_decimal 1.43 and a refreshed
+  lockfile (drops the yanked keccak 0.1.5); ts-sdk and ts-client on
+  @solana-program/system 0.16, @solana-program/token 0.18 and TypeScript 6.0.3.
+
 ## [1.0.0] - 2026-10-26
 
 First stable release of the redesign. Published to crates.io: `matchbook-engine`,
@@ -96,6 +103,7 @@ playground. Not compatible with 0.x markets.
 - On-chain validation for all operations
 - Signed request authentication for trading endpoints
 
-[Unreleased]: https://github.com/joaquinbejar/matchbook/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/joaquinbejar/matchbook/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/joaquinbejar/matchbook/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/joaquinbejar/matchbook/compare/v0.2.1...v1.0.0
 [0.1.0]: https://github.com/joaquinbejar/matchbook/releases/tag/v0.1.0
