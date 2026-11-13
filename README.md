@@ -401,8 +401,7 @@ We welcome contributions to this project! If you would like to contribute, pleas
 If you have any questions, issues, or would like to provide feedback, please feel free to contact the project maintainer:
 
 ### **Contact Information**
-
-- **Author**: Joaquín Béjar García <https://joaquinbejar.taunais.com/>
+- **Author**: Joaquín Béjar García
 - **Email**: jb@taunais.com
 - **Telegram**: [@joaquin_bejar](https://t.me/joaquin_bejar)
 - **Repository**: <https://github.com/joaquinbejar/matchbook>
@@ -417,16 +416,6 @@ Licensed under **MIT** license. See [LICENSE](LICENSE).
 <!-- related-projects:start -->
 ## Related projects
 
-Repositories by the same author on order books, market making and Solana trading.
-
-| Repository | Description |
-|------------|-------------|
-| [OrderBook-rs](https://github.com/joaquinbejar/OrderBook-rs) | High-performance, thread-safe limit order book in Rust with lock-free data structures. |
-| [PriceLevel](https://github.com/joaquinbejar/PriceLevel) | Lock-free price level implementation, the building block of a limit order book. |
-| [hft-clob-core](https://github.com/joaquinbejar/hft-clob-core) | Single-symbol CLOB matching engine with an integer-only hot path and deterministic replay. |
-| [market-maker-rs](https://github.com/joaquinbejar/market-maker-rs) | Quantitative market making strategies, starting with the Avellaneda-Stoikov model. |
-| [CLMM-Liquidity-Provider](https://github.com/joaquinbejar/CLMM-Liquidity-Provider) | Strategy optimization for liquidity providers on Solana CLMMs (Raydium, Orca, Meteora). |
-| [DeFi-Arbitrage-Engine](https://github.com/joaquinbejar/DeFi-Arbitrage-Engine) | Real-time arbitrage engine for Solana DEXs with MEV protection. |
-| [hydra-amm](https://github.com/joaquinbejar/hydra-amm) | Universal AMM engine: build, configure and operate any automated market maker. |
+No other repositories by the same author depend on this project, and it depends on none of them. See all repositories at <https://github.com/joaquinbejar?tab=repositories>.
 
 <!-- related-projects:end -->
