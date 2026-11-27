@@ -191,6 +191,10 @@ Closes #[issue_number]
 3. Address review feedback promptly
 4. Squash commits before merge (if requested)
 
+### Dependencies
+
+Pull requests must not add dependencies (crates, packages, libraries, actions) that are owned, maintained or published by the pull request's author. If you need functionality from a library you maintain, implement the needed logic directly in this repository instead. PRs that add such a dependency will be asked to remove it before review continues. Any new third party dependency must be justified in the PR description (why it is needed, license, maintenance status).
+
 ## Testing
 
 ### Unit Tests
